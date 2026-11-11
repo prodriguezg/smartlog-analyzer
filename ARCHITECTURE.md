@@ -22,14 +22,17 @@ flowchart LR
         Mock[Mock local]
     end
     DB[(Contenedor db con MySQL)]
+    Admin[Contenedor phpMyAdmin]
     OpenAI[OpenAI Responses API]
 
     Browser -->|Interfaz y llamadas a /api| Nginx
+    Browser -->|Inspección local de la base| Admin
     Client -->|HTTP /api| Nginx
     Nginx -->|Sirve archivos estáticos| UI
     Nginx -->|Reenvía /api| API
     API -->|Publica /api/docs y /api/openapi.yaml| Docs
     API -->|Logs, consultas y alta del análisis| DB
+    Admin -->|Conexión MySQL| DB
     Worker -->|Lee pendientes y persiste resultados| DB
     Worker --> Service
     Factory -->|Configura al arrancar| Provider
@@ -39,11 +42,12 @@ flowchart LR
     Provider -->|Modo openai| OpenAI
 ```
 
-El monorepo organiza la interfaz en `frontend/` y la API y el worker en `backend/`. Un `docker-compose.yml` en la raíz levanta tres servicios con `docker compose up`.
+El monorepo organiza la interfaz en `frontend/` y la API y el worker en `backend/`. Un `docker-compose.yml` en la raíz levanta cuatro servicios con `docker compose up`.
 
 - `frontend` compila React con Vite y sirve los archivos con Nginx. Publica el puerto de la demo, por ejemplo `localhost:8080`, y reenvía `/api/*` al servicio `backend` conservando el prefijo. La interfaz y la API están disponibles desde el mismo origen.
 - `backend` ejecuta Express, Sequelize y el worker. Compose espera a que pase el healthcheck de MySQL antes de iniciarlo. El backend aplica las migraciones y los seeds pendientes y marca los análisis interrumpidos antes de aceptar solicitudes.
-- `db` ejecuta MySQL con InnoDB. Express y MySQL se comunican por la red interna de Compose.
+- `db` ejecuta MySQL con InnoDB. Express y phpMyAdmin se conectan a MySQL por la red interna de Compose.
+- `phpmyadmin` permite inspeccionar el esquema y los datos de MySQL desde un puerto local independiente, `127.0.0.1:8081` por defecto. Compose lo inicia cuando MySQL pasa el healthcheck.
 
 La interfaz usa la API para mostrar el resumen, filtrar y paginar logs, iniciar análisis por filtros o IDs y consultar hallazgos con su evidencia. Se propone TanStack Query para las consultas y el polling de cada análisis, que se detiene en `COMPLETED` o `FAILED`.
 
@@ -110,7 +114,7 @@ Las respuestas de error usan `error.code` y `error.message`. Se propone `400` pa
 | --- | --- |
 | JavaScript y Express | NestJS aporta más convenciones y FastAPI ofrece documentación interactiva y validación integrada. Express cubre el tamaño de esta API y permite reutilizar middleware de validación y errores. |
 | React con Vite | Next.js aporta rutas y renderizado en servidor. La interfaz consume Express desde el navegador y Vite permite compilarla como archivos estáticos. |
-| Tres servicios en Compose | Servir el build desde Express también permite arrancar con un solo comando. Nginx sirve la interfaz por separado y mantiene un único origen para la demo y la API. |
+| Nginx en un servicio separado | Servir el build desde Express también permite arrancar con un solo comando. Nginx sirve la interfaz por separado y mantiene un único origen para la demo y la API. |
 | OpenAPI desde el primer incremento | Generar documentación a partir de las rutas fue una alternativa. El contrato versionado permite acordar esquemas y ejemplos antes de implementar cada operación y usarlos también desde Swagger UI. |
 | MySQL con InnoDB y Sequelize | PostgreSQL cubre el mismo modelo relacional. MongoDB facilita documentos con estructura variable. La experiencia con MySQL y Sequelize pesa más para implementar y probar las migraciones, la agregación y las relaciones. SQL directo también era viable. Sequelize permite reutilizar filtros y usar SQL parametrizado cuando aporta claridad. |
 | Worker local que consulta MySQL | Una cola en memoria introduce un paso entre guardar y encolar. Un broker dedicado agrega un servicio a Compose. Usar `PENDING` como registro de trabajo permite que el worker lea directamente lo que la API ya confirmó. |
