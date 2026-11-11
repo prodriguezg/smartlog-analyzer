@@ -1,0 +1,48 @@
+openapi: 3.1.0
+info:
+  title: SmartLog Analyzer API
+  version: 0.1.0
+servers:
+  - url: /api
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Comprueba si la API puede consultar MySQL
+      responses:
+        '200':
+          description: La API puede consultar MySQL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                status: ok
+                checks:
+                  database: ok
+        '503':
+          description: La API no pudo consultar MySQL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                status: unavailable
+                checks:
+                  database: unavailable
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        checks:
+          type: object
+          required: [database]
+          properties:
+            database:
+              type: string
+              enum: [ok, unavailable]

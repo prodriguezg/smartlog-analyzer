@@ -1,0 +1,56 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - '127.0.0.1:${APP_PORT:-8080}:8080'
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    init: true
+    environment:
+      DB_HOST: db
+      DB_NAME: ${MYSQL_DATABASE:-smartlog}
+      DB_USER: ${MYSQL_USER:-smartlog}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-smartlog-dev}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smartlog}
+      MYSQL_USER: ${MYSQL_USER:-smartlog}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-smartlog-dev}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-smartlog-root-dev}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mysql --protocol=TCP --host=127.0.0.1 --user="$$MYSQL_USER"
+          --password="$$MYSQL_PASSWORD" --database="$$MYSQL_DATABASE" --execute='SELECT 1'
+      interval: 5s
+      timeout: 4s
+      start_period: 30s
+      retries: 12
+
+  phpmyadmin:
+    image: phpmyadmin:5.2.3
+    environment:
+      PMA_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${PHPMYADMIN_PORT:-8081}:80'
+
+volumes:
+  mysql-data:
