@@ -1,6 +1,6 @@
 import { Sequelize } from 'sequelize';
 
-export function createDatabase({ host, port, name, user, password }) {
+export function createSequelize({ host, port, name, user, password }) {
   return new Sequelize(name, user, password, {
     dialect: 'mysql',
     host,

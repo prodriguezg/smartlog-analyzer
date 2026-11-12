@@ -1,8 +1,8 @@
 import { createApp } from './app.js';
-import { createDatabase } from './database.js';
+import { createSequelize } from './repositories/sequelize.js';
 
 const port = Number(process.env.PORT ?? 3000);
-const database = createDatabase({
+const database = createSequelize({
   host: process.env.DB_HOST ?? '127.0.0.1',
   port: Number(process.env.DB_PORT ?? 3306),
   name: process.env.DB_NAME ?? 'smartlog',

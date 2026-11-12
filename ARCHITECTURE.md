@@ -101,10 +101,10 @@ Los ejemplos del contrato siguen el recorrido del seed e incluyen selección por
 | `GET /api/logs/summary` | Aplica los mismos filtros de logs y devuelve el conteo por servicio y nivel. Es el punto de entrada de la demo. |
 | `POST /api/logs/analyze` | Valida filtros o IDs y devuelve `202` con el ID del análisis aceptado. |
 | `GET /api/analysis/{id}` | Devuelve el estado, los IDs seleccionados y, cuando corresponde, el informe completo o el motivo del fallo. |
-| `GET /api/findings` | Lista hallazgos por categoría, servicio o fecha de los logs de evidencia, con paginación. |
+| `GET /api/analysis/findings` | Lista hallazgos por categoría, servicio o fecha de los logs de evidencia, con paginación. |
 | `GET /api/health` | Informa el estado de la base y del proveedor de análisis. |
 
-En `GET /api/findings`, si se combinan servicio y fechas, un mismo log de evidencia debe cumplir ambos filtros. Cada hallazgo aparece una sola vez aunque coincidan varios logs. Los listados usan `limit` de 1 a 100 (por defecto 50), `offset` entero desde 0 (por defecto 0) y `hasMore` calculado a partir de una fila adicional. El orden propuesto es descendente por fecha del evento para logs y por fecha de creación para hallazgos, con ID descendente como desempate. El tamaño de la página es independiente del límite de un análisis.
+En `GET /api/analysis/findings`, si se combinan servicio y fechas, un mismo log de evidencia debe cumplir ambos filtros. Cada hallazgo aparece una sola vez aunque coincidan varios logs. Los listados usan `limit` de 1 a 100 (por defecto 50), `offset` entero desde 0 (por defecto 0) y `hasMore` calculado a partir de una fila adicional. El orden propuesto es descendente por fecha del evento para logs y por fecha de creación para hallazgos, con ID descendente como desempate. El tamaño de la página es independiente del límite de un análisis.
 
 Las respuestas de error usan `error.code` y `error.message`. Se propone `400` para parámetros inválidos o modos de selección combinados, `422` para una selección vacía, demasiado grande o con IDs inexistentes, `404` para un análisis inexistente y `503` para dependencias indispensables para la operación que estén indisponibles.
 
