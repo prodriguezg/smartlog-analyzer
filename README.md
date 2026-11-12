@@ -13,7 +13,7 @@ docker compose up --build
 | URL | Contenido |
 | --- | --- |
 | <http://127.0.0.1:8080> | Interfaz y estado del sistema |
-| <http://127.0.0.1:8080/api/health> | `200` si MySQL responde y `503` si la API no puede consultarlo |
+| <http://127.0.0.1:8080/api/health> | `200` con `ok` si MySQL y el proveedor están disponibles, `200` con `degraded` si solo falla el proveedor y `503` con `unavailable` si falla MySQL |
 | <http://127.0.0.1:8080/api/docs/> | Swagger UI |
 | <http://127.0.0.1:8080/api/openapi.yaml> | Contrato OpenAPI |
 | <http://127.0.0.1:8081> | phpMyAdmin para inspeccionar MySQL |
@@ -23,6 +23,8 @@ Nginx sirve React y reenvía `/api/` a Express por la red interna de Compose. Ex
 Compose arranca con valores locales predeterminados. Puedes copiar `.env.example` a `.env` para configurar `APP_PORT` y `PHPMYADMIN_PORT`, los puertos locales de la aplicación y phpMyAdmin. MySQL aplica `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` y `MYSQL_ROOT_PASSWORD` al inicializar un volumen nuevo.
 
 En phpMyAdmin, inicia sesión con `MYSQL_USER` y `MYSQL_PASSWORD` y elige la base `MYSQL_DATABASE` en la barra lateral. Con los valores predeterminados, usa el usuario `smartlog`, la contraseña `smartlog-dev` y la base `smartlog`. La pestaña **Estructura** muestra las tablas y, al elegir una, sus columnas e índices.
+
+El proveedor predeterminado es `mock`. Para comprobar OpenAI con Compose, configura `LLM_PROVIDER=openai`, `OPENAI_API_KEY` y `OPENAI_MODEL` en `.env`.
 
 ## Desarrollo con recarga automática
 

@@ -16,7 +16,7 @@ const paths = {
   spec: "/api/openapi.yaml",
 };
 
-export function createApp({ database }) {
+export function createApp({ database, llmProvider }) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ strict: false }));
@@ -35,9 +35,9 @@ export function createApp({ database }) {
     }),
   );
 
-  app.use(paths.health, createHealthRouter({ database }));
+  app.use(paths.health, createHealthRouter({ database, llmProvider }));
   app.use(paths.logs, createLogsRouter({ database, path: paths.logs }));
-  app.use(paths.analysis, createAnalysisRouter({ database }));
+  app.use(paths.analysis, createAnalysisRouter({ database, llmProvider }));
 
   return app;
 }

@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-export function createAnalysisRouter({ database }) {
+export function createAnalysisRouter({ database, llmProvider }) {
   const router = Router();
 
   router.get("/findings", async (req, res) => {
