@@ -65,6 +65,11 @@ Usa Node.js 24 y npm desde la raíz del monorepo. Las pruebas de integración re
 ```bash
 npm ci
 npm run lint
+npm run lint:openapi
+docker compose -f docker-compose.yml config -q
+docker compose -f docker-compose.yml -f compose.dev.yml config -q
 npm run build
 npm test
 ```
+
+[CI](.github/workflows/ci.yml) ejecuta estos controles en los PR a `master` o `feat/create-api` y en los pushes a `master`. La suite comprueba respuestas representativas de éxito y error contra sus esquemas OpenAPI. CI ejecuta la suite con `npm run test:coverage --workspace backend` y publica el informe HTML como artefacto `backend-coverage`, sin umbral mínimo. En los PR, el resumen de la ejecución incluye la comparación OpenAPI con la rama base como control informativo.

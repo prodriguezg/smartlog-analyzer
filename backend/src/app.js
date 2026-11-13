@@ -19,11 +19,11 @@ const paths = {
   spec: "/api/openapi.yaml",
 };
 
-export function createApp({ database, llmProvider, analysisLimits }) {
+export function createApp({ database, llmProvider, analysisLimits, validateResponses = false }) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ strict: false }));
-  app.use(createOpenApiValidationMiddleware(specPath));
+  app.use(createOpenApiValidationMiddleware(specPath, { validateResponses }));
 
   app.get(paths.spec, (_request, response) => {
     response.type("application/yaml").sendFile(specPath);

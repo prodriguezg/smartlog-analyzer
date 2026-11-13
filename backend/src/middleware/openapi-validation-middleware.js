@@ -13,13 +13,13 @@ function handleValidationError(error, _request, response, next) {
     malformedJson ? "El cuerpo debe ser JSON válido." : error.message);
 }
 
-export function createOpenApiValidationMiddleware(apiSpec) {
+export function createOpenApiValidationMiddleware(apiSpec, { validateResponses = false } = {}) {
   return [
     ...OpenApiValidator.middleware({
       apiSpec,
       ignoreUndocumented: true,
       validateRequests: true,
-      validateResponses: false,
+      validateResponses,
       validateSecurity: false,
       fileUploader: false,
     }),

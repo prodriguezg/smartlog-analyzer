@@ -133,3 +133,23 @@ describe("OpenAPI request validation", function () {
     expect(body.error.code).to.equal("INVALID_REQUEST");
   });
 });
+
+describe("OpenAPI response validation", function () {
+  it("matches the documented 200 response for a log page", async function () {
+    const database = { models: { Log: { findAll: async () => [] } } };
+    await request(createApp({ database, validateResponses: true }))
+      .get("/api/logs")
+      .expect("Content-Type", /json/)
+      .expect(200);
+  });
+
+  it("matches the documented 503 response when MySQL is unavailable", async function () {
+    const database = { query: async () => {
+      throw new ConnectionError(new Error("Connection refused"));
+    } };
+    await request(createApp({ database, validateResponses: true }))
+      .get("/api/logs/summary")
+      .expect("Content-Type", /json/)
+      .expect(503);
+  });
+});
