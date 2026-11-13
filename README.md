@@ -1,6 +1,6 @@
 # SmartLog Analyzer
 
-La base del proyecto levanta una interfaz React, una API Express y MySQL 8.4. La pantalla inicial muestra si la API puede consultar la base de datos. El diseño del prototipo está en [ARCHITECTURE.md](ARCHITECTURE.md).
+SmartLog Analyzer combina una interfaz React, una API Express y MySQL 8.4 para explorar logs y analizar incidentes entre servicios. El diseño del prototipo está en [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Arranque
 
@@ -12,7 +12,7 @@ docker compose up --build
 
 | URL | Contenido |
 | --- | --- |
-| <http://127.0.0.1:8080> | Interfaz y estado del sistema |
+| <http://127.0.0.1:8080> | Explorador de logs, hallazgos y estado del sistema |
 | <http://127.0.0.1:8080/api/health> | `200` con `ok` si MySQL y el proveedor están disponibles, `200` con `degraded` si solo falla el proveedor y `503` con `unavailable` si falla MySQL |
 | <http://127.0.0.1:8080/api/docs/> | Swagger UI |
 | <http://127.0.0.1:8080/api/openapi.yaml> | Contrato OpenAPI |
@@ -30,7 +30,9 @@ El tamaño de una selección de análisis se configura con `ANALYSIS_MAX_LOGS` y
 
 ## Demo con los logs de ejemplo
 
-Al iniciar, el backend carga 31 logs de ejemplo del 12 de noviembre de 2026 entre las 14:02 y las 14:11 UTC. En [Swagger UI](http://127.0.0.1:8080/api/docs/) puedes usar **Try it out** para recorrer una compra que falló por un timeout.
+Al iniciar, el backend carga 31 logs de ejemplo del 12 de noviembre de 2026 entre las 14:02 y las 14:11 UTC. Para investigar una compra que falló por un timeout, abre el [explorador](http://127.0.0.1:8080) y revisa el resumen por servicio y nivel. Abre el registro `Checkout failed after payment timeout` y usa **Ver traza** para consultar sus seis eventos. Elige **Analizar filtros** y abre **Ver evidencia (2)** en el informe. En **Hallazgos**, aplica la categoría `timeout` para volver a consultar el resultado.
+
+También puedes recorrer el flujo por API desde [Swagger UI](http://127.0.0.1:8080/api/docs/) con **Try it out**.
 
 1. Ejecuta `GET /logs/summary` con `from=2026-11-12T14:02:00Z` y `to=2026-11-12T14:11:00Z` para ver los conteos por servicio y nivel. El inicio es inclusivo y el fin es exclusivo.
 2. Ejecuta `GET /logs` con `traceId=1d42b7d538724fae95c962e3d06cc5db`. La traza tiene seis logs de `checkout-api`, `inventory-service` y `payment-service`.
@@ -69,6 +71,7 @@ npm run lint:openapi
 docker compose -f docker-compose.yml config -q
 docker compose -f docker-compose.yml -f compose.dev.yml config -q
 npm run build
+npm test --workspace frontend
 npm test
 ```
 
