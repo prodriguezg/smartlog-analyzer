@@ -26,6 +26,7 @@ export function defineModels(database) {
       allowNull: false,
       defaultValue: "PENDING",
     },
+    provider: DataTypes.STRING(64),
     createdAt: { ...createdAt },
     finishedAt: DataTypes.DATE(3),
     summary: DataTypes.TEXT,

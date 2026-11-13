@@ -18,7 +18,7 @@ const finding = {
   suggestion: 'Revisar la latencia del proveedor.', evidence: [timeout, checkout],
 };
 const pending = { id: 1, status: 'PENDING', logIds: [21, 23] };
-const complete = { ...pending, status: 'COMPLETED', report: { summary: 'Informe listo.', findings: [finding] } };
+const complete = { ...pending, status: 'COMPLETED', provider: 'mock', report: { summary: 'Informe listo.', findings: [finding] } };
 
 function page(items, params, hasMore = false) {
   return { items, hasMore, limit: Number(params.get('limit')), offset: Number(params.get('offset')) };
@@ -183,7 +183,9 @@ describe('SmartLog', () => {
     await user.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
     await user.click(await screen.findByRole('button', { name: /Analizar filtros/ }));
     expect(await screen.findByText('Análisis pendiente')).toBeTruthy();
+    expect(screen.queryByText(/^Proveedor:/)).toBeNull();
     expect(await screen.findByText('Informe listo.', {}, { timeout: 3500 })).toBeTruthy();
+    expect(screen.getByText('Proveedor: Mock')).toBeTruthy();
     expect(requests.filter(({ pathname }) => pathname === '/api/logs/analyze')).toEqual([
       { pathname: '/api/logs/analyze', params: {}, body: { filters: { traceId } } },
     ]);
@@ -197,12 +199,12 @@ describe('SmartLog', () => {
     expect(reads).toBe(2);
   }, 8000);
 
-  it('distinguishes a failed status request from a failed analysis and retries the correct operation', async () => {
+  it.each(['openai', null])('retries the correct operation after a failed analysis with provider %s', async (provider) => {
     let reads = 0;
     const { user, requests } = mount({
       '/api/analysis/1': () => ++reads === 1
         ? json({ error: { message: 'Error temporal de conexión' } }, 503)
-        : json({ ...pending, status: 'FAILED', error: { message: 'El proveedor agotó el tiempo de espera.' } }),
+        : json({ ...pending, status: 'FAILED', provider, error: { message: 'El análisis no pudo completarse.' } }),
       '/api/logs/analyze': (_params, body) => json({ id: body.logIds?.length === 2 ? 2 : 1, status: 'PENDING' }, 202),
       '/api/analysis/2': () => json({ ...complete, id: 2, report: { summary: 'Nuevo informe.', findings: [] } }),
     });
@@ -210,10 +212,13 @@ describe('SmartLog', () => {
     await user.click(screen.getByRole('button', { name: 'Analizar selección (1)' }));
     expect(await screen.findByText('Error temporal de conexión')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Reintentar' }));
-    expect(await screen.findByText('El proveedor agotó el tiempo de espera.')).toBeTruthy();
+    expect(await screen.findByText('El análisis no pudo completarse.')).toBeTruthy();
+    if (provider) expect(screen.getByText('Proveedor: OpenAI')).toBeTruthy();
+    else expect(screen.queryByText(/^Proveedor:/)).toBeNull();
     expect(requests.filter(({ pathname }) => pathname === '/api/logs/analyze')).toHaveLength(1);
     await user.click(screen.getByRole('button', { name: 'Reintentar con los mismos logs' }));
     expect(await screen.findByText('El análisis terminó sin hallazgos.')).toBeTruthy();
+    expect(screen.getByText('Proveedor: Mock')).toBeTruthy();
     expect(requests.filter(({ pathname }) => pathname === '/api/logs/analyze').map(({ body }) => body)).toEqual([
       { logIds: [21] }, { logIds: [21, 23] },
     ]);
@@ -230,6 +235,59 @@ describe('SmartLog', () => {
     expect(checkbox.checked).toBe(true);
     await user.click(checkbox);
     expect(screen.getByRole('button', { name: 'Analizar selección' }).disabled).toBe(true);
+  });
+
+  it('opens completed reports and retries failed analyses while preserving the list page', async () => {
+    const completedRow = { id: 1, status: 'COMPLETED', createdAt: timestamp, provider: 'mock' };
+    const failedRow = { id: 2, status: 'FAILED', createdAt: timestamp, provider: null };
+    let retryReads = 0;
+    const { user, requests } = mount({
+      '/api/analysis': (params) => params.get('offset') === '0'
+        ? json(page([completedRow], params, true))
+        : json(page([failedRow], params)),
+      '/api/analysis/2': () => json({ ...pending, ...failedRow, error: { message: 'Falló el intento anterior.' } }),
+      '/api/logs/analyze': () => json({ id: 3, status: 'PENDING' }, 202),
+      '/api/analysis/3': () => json(++retryReads === 1
+        ? { ...pending, id: 3 }
+        : { ...complete, id: 3, report: { summary: 'Nuevo informe.', findings: [] } }),
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Análisis', exact: true }));
+    await user.click(await screen.findByRole('button', { name: 'Ver detalle del análisis #1' }));
+    expect(await screen.findByText('Informe listo.')).toBeTruthy();
+    await user.click(screen.getByText('Ver evidencia (2)'));
+    await user.click(screen.getByRole('button', { name: new RegExp(checkout.message) }));
+    expect(within(screen.getByRole('dialog')).getByText(checkout.message)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Cerrar detalle' }));
+    await user.click(screen.getByRole('button', { name: 'Volver al listado' }));
+    await user.click(await screen.findByRole('button', { name: 'Siguiente' }));
+    await user.click(await screen.findByRole('button', { name: 'Ver detalle del análisis #2' }));
+    expect(await screen.findByText('Falló el intento anterior.')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Reintentar con los mismos logs' }));
+    expect(await screen.findByText('Análisis pendiente')).toBeTruthy();
+    expect(await screen.findByText('Nuevo informe.', {}, { timeout: 3500 })).toBeTruthy();
+    expect(requests.filter(({ pathname }) => pathname === '/api/logs/analyze')).toEqual([
+      { pathname: '/api/logs/analyze', params: {}, body: { logIds: [21, 23] } },
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'Volver al listado' }));
+    expect(await screen.findByLabelText('Página 2')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Ver detalle del análisis #2' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Siguiente' }).disabled).toBe(true);
+    expect(requests).toContainEqual({ pathname: '/api/analysis', params: { limit: '10', offset: '10' }, body: undefined });
+  }, 8000);
+
+  it('can retry loading the saved analyses and shows when there are no results', async () => {
+    let reads = 0;
+    const { user } = mount({
+      '/api/analysis': (params) => ++reads === 1
+        ? json({ error: { message: 'MySQL no está disponible.' } }, 503)
+        : json(page([], params)),
+    });
+    await user.click(screen.getByRole('button', { name: 'Análisis', exact: true }));
+    expect(await screen.findByText('No se pudieron cargar los análisis.')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+    expect(await screen.findByText('Todavía no hay análisis finalizados.')).toBeTruthy();
   });
 
   it('filters and pages findings with the catalog and leaves evidence available when the provider is degraded', async () => {

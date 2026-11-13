@@ -21,6 +21,8 @@ const findingRules = [
 
 export function createMockProvider() {
   return {
+    name: "mock",
+
     async analyze({ logs, categories }) {
       const categoryCodes = new Set(categories.map(({ code }) => code));
       const findings = [];

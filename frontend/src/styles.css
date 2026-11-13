@@ -239,7 +239,7 @@ time, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .level-counts { display: grid; grid-template-columns: repeat(2, minmax(0, auto)); gap: .3rem .65rem; }
 .level-counts > li { display: flex; align-items: center; gap: .4rem; font-size: .82rem; font-variant-numeric: tabular-nums; }
 
-.severity, .category {
+.severity, .category, .analysis-provider {
   display: inline-block;
   padding: .19rem .43rem;
   border-radius: 5px;
@@ -254,7 +254,7 @@ time, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .severity--info { color: #1b4893; background: #e3efff; }
 .severity--warn { color: #794207; background: #ffedc5; }
 .severity--error { color: #9b1730; background: #ffe3e9; }
-.category { color: #43239d; background: #ede6ff; font-size: .77rem; }
+.category, .analysis-provider { color: #43239d; background: #ede6ff; font-size: .77rem; }
 
 .section-header {
   display: flex;
@@ -347,6 +347,25 @@ time, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
   background: #f8f6ff;
 }
 .analysis-panel > * + *, .analysis-report > * + *, .analysis-failure > * + * { margin-top: .6rem; }
+.analysis-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem .65rem;
+}
+
+.saved-analyses { list-style: none; margin: 0; padding: 0; }
+.saved-analyses > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .6rem 1rem;
+  padding: .7rem .35rem;
+  border-bottom: 1px solid var(--line);
+}
+.saved-analysis-details { display: grid; gap: .3rem; overflow-wrap: anywhere; }
+.saved-analysis-details .muted { font-size: .82rem; }
+.saved-analysis-labels { display: flex; flex-wrap: wrap; gap: .35rem; }
 
 .finding-list { display: grid; gap: .65rem; }
 .finding {
@@ -429,6 +448,8 @@ time, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
   .filter-grid, .filter-grid:has(.filter-field--category) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
   .button.apply-filters { grid-column: 1 / -1; }
   .record-actions .button { font-size: .78rem; padding-inline: .55rem; }
+  .saved-analyses > li { grid-template-columns: minmax(0, 1fr) auto; }
+  .saved-analysis-details { grid-column: 1 / -1; }
   .log-detail { padding: 1rem; }
 }
 

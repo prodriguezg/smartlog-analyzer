@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { analysisOptions, healthOptions, submitAnalysis } from './api.js';
+import { analysesKey, analysisOptions, healthOptions, submitAnalysis } from './api.js';
+import Analyses from './Analyses.jsx';
 import Explorer from './Explorer.jsx';
 import Findings from './Findings.jsx';
 import AnalysisResult from './AnalysisResult.jsx';
@@ -29,17 +30,34 @@ function SystemStatus() {
   );
 }
 
+function useRefreshOnAnalysisResult(result) {
+  const queryClient = useQueryClient();
+  const id = result?.id;
+  const status = result?.status;
+
+  useEffect(() => {
+    if (status === 'COMPLETED' || status === 'FAILED') {
+      void queryClient.invalidateQueries({ queryKey: analysesKey });
+    }
+    if (status === 'COMPLETED') {
+      void queryClient.invalidateQueries({ queryKey: ['analysis/findings'] });
+    }
+  }, [id, status, queryClient]);
+}
+
 export default function App() {
   const [view, setView] = useState('explorer');
   const [filters, setFilters] = useState({});
   const [filterVersion, setFilterVersion] = useState(0);
   const [detail, setDetail] = useState(null);
   const [analysisId, setAnalysisId] = useState(null);
+  const [retryId, setRetryId] = useState(null);
   const mainRef = useRef(null);
-  const queryClient = useQueryClient();
   const analysis = useQuery(analysisOptions(analysisId));
+  const retry = useQuery(analysisOptions(retryId));
+  useRefreshOnAnalysisResult(analysis.data);
+  useRefreshOnAnalysisResult(retry.data);
   const status = analysis.data?.status;
-  const completedId = status === 'COMPLETED' ? analysis.data.id : null;
   const submission = useMutation({
     mutationFn: submitAnalysis,
     onSuccess: ({ id }) => setAnalysisId(id),
@@ -47,12 +65,6 @@ export default function App() {
 
   const analysisBusy = submission.isPending || (analysisId !== null &&
     status !== 'COMPLETED' && status !== 'FAILED' && analysis.error?.status !== 404);
-
-  useEffect(() => {
-    if (completedId !== null) {
-      void queryClient.invalidateQueries({ queryKey: ['analysis/findings'] });
-    }
-  }, [completedId, queryClient]);
 
   function showTrace(traceId) {
     setView('explorer');
@@ -75,6 +87,8 @@ export default function App() {
           <nav className="main-nav" aria-label="Navegación principal">
             <button type="button" aria-current={view === 'explorer' ? 'page' : undefined}
               onClick={() => setView('explorer')}>Explorador</button>
+            <button type="button" aria-current={view === 'analyses' ? 'page' : undefined}
+              onClick={() => setView('analyses')}>Análisis</button>
             <button type="button" aria-current={view === 'findings' ? 'page' : undefined}
               onClick={() => setView('findings')}>Hallazgos</button>
           </nav>
@@ -91,7 +105,7 @@ export default function App() {
             onAnalyze={analyze} onResetSubmission={() => { if (!submission.isPending) submission.reset(); }}>
             <AnalysisResult id={analysisId} analysis={analysis} submission={submission} onRetry={analyze} onDetail={setDetail} />
           </Explorer>
-        ) : <Findings onDetail={setDetail} />}
+        ) : view === 'analyses' ? <Analyses onAccepted={setRetryId} onDetail={setDetail} /> : <Findings onDetail={setDetail} />}
       </main>
       {detail && <LogDetail log={detail} onDismiss={() => setDetail(null)} onTrace={showTrace} />}
     </>

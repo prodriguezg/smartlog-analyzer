@@ -105,6 +105,7 @@ export function createOpenAIProvider({ apiKey, model, fetch = globalThis.fetch }
   }
 
   return {
+    name: "openai",
     configurationIssue,
 
     async analyze({ logs, categories }) {

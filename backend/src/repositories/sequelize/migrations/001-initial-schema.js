@@ -16,6 +16,7 @@ const tables = [
   `CREATE TABLE IF NOT EXISTS analyses (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     status ENUM('PENDING', 'COMPLETED', 'FAILED') NOT NULL DEFAULT 'PENDING',
+    provider VARCHAR(64),
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     finished_at DATETIME(3),
     summary TEXT,

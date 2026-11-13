@@ -66,6 +66,7 @@ describe("Analysis service with MySQL", function () {
     const { promise: resume, resolve: allowReport } = Promise.withResolvers();
     const mock = createMockProvider();
     const llmProvider = {
+      ...mock,
       async analyze(input) {
         markStarted(input);
         await resume;
@@ -94,6 +95,7 @@ describe("Analysis service with MySQL", function () {
 
     const { body } = await api.get(`/api/analysis/${id}`).expect(200);
     expect(body.status).to.equal("COMPLETED");
+    expect(body.provider).to.equal("mock");
     expect(body.finishedAt).to.be.a("string");
     expect(body.report.summary).to.include("1 hallazgo");
     expect(body.report.findings).to.have.length(1);
@@ -106,6 +108,35 @@ describe("Analysis service with MySQL", function () {
     expect(await service.processNextAnalysis()).to.equal(true);
     expect((await service.getAnalysis(nextId)).report.findings).to.deep.equal([]);
     expect(await service.processNextAnalysis()).to.equal(false);
+  });
+
+  it("pages only finalized analyses in descending creation order and breaks ties by ID", async () => {
+    const validated = request(createApp({ database, validateResponses: true }));
+    const empty = { items: [], limit: 50, offset: 0, hasMore: false };
+    await validated.get("/api/analysis").expect(200, empty);
+
+    const { Analysis } = database.models;
+    const [older, first, second] = await Analysis.bulkCreate([
+      { status: "COMPLETED", createdAt: "2026-10-01T14:00:00.000Z", provider: "mock" },
+      { status: "FAILED", createdAt: timestamp, provider: null },
+      { status: "COMPLETED", createdAt: timestamp, provider: "openai" },
+      { status: "PENDING", createdAt: "2026-10-01T15:00:00.000Z" },
+    ]);
+
+    await validated.get("/api/analysis").query({ limit: 2 }).expect(200, {
+      items: [
+        { id: second.id, status: "COMPLETED", createdAt: timestamp, provider: "openai" },
+        { id: first.id, status: "FAILED", createdAt: timestamp, provider: null },
+      ],
+      limit: 2, offset: 0, hasMore: true,
+    });
+    await validated.get("/api/analysis").query({ limit: 2, offset: 2 }).expect(200, {
+      items: [{ id: older.id, status: "COMPLETED", createdAt: "2026-10-01T14:00:00.000Z", provider: "mock" }],
+      limit: 2, offset: 2, hasMore: false,
+    });
+    await validated.get("/api/analysis").query({ offset: 3 }).expect(200, { ...empty, offset: 3 });
+    await validated.get("/api/analysis").query({ limit: 101 }).expect(400);
+    await validated.get("/api/analysis").query({ offset: -1 }).expect(400);
   });
 
   it("filters and pages findings while returning all of each finding's evidence", async () => {
@@ -158,11 +189,12 @@ describe("Analysis service with MySQL", function () {
 
     for (const report of reports) {
       const id = await submitAnalysis(selected);
-      const service = analysisService({ database, llmProvider: { analyze: async () => report } });
+      const service = analysisService({ database, llmProvider: { ...createMockProvider(), analyze: async () => report } });
       await service.processNextAnalysis();
       const { body } = await api.get(`/api/analysis/${id}`).expect(200);
-      expect(body).to.have.all.keys("id", "status", "createdAt", "logIds", "finishedAt", "error");
+      expect(body).to.have.all.keys("id", "status", "createdAt", "logIds", "finishedAt", "provider", "error");
       expect(body.status).to.equal("FAILED");
+      expect(body.provider).to.equal("mock");
       expect(body.error.code).to.equal("INVALID_PROVIDER_RESPONSE");
       expect(body.logIds).to.deep.equal([selected]);
     }
@@ -177,6 +209,7 @@ describe("Analysis service with MySQL", function () {
       const service = analysisService({
         database,
         llmProvider: {
+          name: "openai",
           async analyze() {
             throw Object.assign(new Error("Provider details"), { code });
           },
@@ -185,6 +218,7 @@ describe("Analysis service with MySQL", function () {
       await service.processNextAnalysis();
       const { body } = await api.get(`/api/analysis/${id}`).expect(200);
       expect(body.status).to.equal("FAILED");
+      expect(body.provider).to.equal("openai");
       expect(body.error.code).to.equal(code);
       expect(body.error.message).to.be.a("string").and.not.equal("Provider details");
     }
@@ -201,7 +235,7 @@ describe("Analysis service with MySQL", function () {
       const service = analysisService({ database, llmProvider: createMockProvider() });
       await service.processNextAnalysis();
       const saved = await Analysis.findByPk(id);
-      expect(saved).to.include({ status: "FAILED", summary: null, errorCode: "ANALYSIS_ERROR" });
+      expect(saved).to.include({ status: "FAILED", provider: "mock", summary: null, errorCode: "ANALYSIS_ERROR" });
       expect(await Finding.count()).to.equal(0);
       expect(await FindingLog.count()).to.equal(0);
     } finally {
@@ -216,6 +250,7 @@ describe("Analysis service with MySQL", function () {
     await service.failInterruptedAnalyses();
     const { body } = await api.get(`/api/analysis/${interrupted}`).expect(200);
     expect(body.status).to.equal("FAILED");
+    expect(body.provider).to.equal(null);
     expect(body.error.code).to.equal("ANALYSIS_INTERRUPTED");
     expect(body.logIds).to.deep.equal([logId]);
 
