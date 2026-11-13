@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [master, feat/create-api]
+    branches: [master]
   push:
     branches: [master]
 
@@ -37,8 +37,14 @@ jobs:
       - name: Validate OpenAPI
         run: npm run lint:openapi
 
+      - name: Set up Docker Compose
+        uses: docker/setup-compose-action@v2
+        with:
+          version: v5.7.0
+
       - name: Validate Docker Compose
         run: |
+          docker compose version
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml -f compose.dev.yml config -q
 

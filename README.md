@@ -72,4 +72,4 @@ npm run build
 npm test
 ```
 
-[CI](.github/workflows/ci.yml) ejecuta estos controles en los PR a `master` o `feat/create-api` y en los pushes a `master`. La suite comprueba respuestas representativas de éxito y error contra sus esquemas OpenAPI. CI ejecuta la suite con `npm run test:coverage --workspace backend` y publica el informe HTML como artefacto `backend-coverage`, sin umbral mínimo. En los PR, el resumen de la ejecución incluye la comparación OpenAPI con la rama base como control informativo.
+[CI](.github/workflows/ci.yml) ejecuta estos controles en los PR a `master` y en los pushes a esa rama. La suite comprueba respuestas representativas de éxito y error contra sus esquemas OpenAPI. CI ejecuta la suite con `npm run test:coverage --workspace backend` y publica el informe HTML como artefacto `backend-coverage`, sin umbral mínimo. En los PR, el resumen de la ejecución incluye la comparación OpenAPI con la rama base como control informativo.
