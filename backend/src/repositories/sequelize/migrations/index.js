@@ -1,5 +1,5 @@
 import { readdir } from "node:fs/promises";
-import { QueryTypes } from "sequelize";
+import { QueryTypes, UniqueConstraintError } from "sequelize";
 
 async function readMigrationFiles() {
   const directory = new URL(".", import.meta.url);
@@ -44,6 +44,24 @@ export async function runMigrations(database) {
 
   for (const migration of migrations) {
     if (appliedNames.has(migration.name)) continue;
+
+    if (migration.transactional) {
+      await database.transaction(async (transaction) => {
+        // The history key serializes concurrent attempts and rolls back with the data.
+        try {
+          await database.query("INSERT INTO schema_migrations (name) VALUES (?)", {
+            replacements: [migration.name],
+            transaction,
+          });
+        } catch (error) {
+          if (error instanceof UniqueConstraintError) return;
+          throw error;
+        }
+
+        await migration.up(database, transaction);
+      });
+      continue;
+    }
 
     await migration.up(database);
     await database.query(

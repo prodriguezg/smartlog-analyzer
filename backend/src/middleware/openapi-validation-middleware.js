@@ -1,4 +1,5 @@
 import * as OpenApiValidator from "express-openapi-validator";
+import { sendHttpError } from "./service-error-response.js";
 
 function handleValidationError(error, _request, response, next) {
   const malformedJson = error.type === "entity.parse.failed";
@@ -8,12 +9,8 @@ function handleValidationError(error, _request, response, next) {
     return next(error);
   }
 
-  return response.status(400).json({
-    error: {
-      code: "INVALID_REQUEST",
-      message: malformedJson ? "El cuerpo debe ser JSON válido." : error.message,
-    },
-  });
+  return sendHttpError(response, 400, "INVALID_REQUEST",
+    malformedJson ? "El cuerpo debe ser JSON válido." : error.message);
 }
 
 export function createOpenApiValidationMiddleware(apiSpec) {

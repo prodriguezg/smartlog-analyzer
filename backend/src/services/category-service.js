@@ -2,11 +2,14 @@ export function categoryService({ database }) {
   return {
     async getCategories() {
       try {
-        const [results] = await database.query("SELECT * FROM categories ORDER BY code ASC");
-        return results;
+        return await database.models.Category.findAll({
+          attributes: ["code", "description"],
+          order: [["code", "ASC"]],
+          raw: true,
+        });
       } catch (error) {
         console.error("Error retrieving categories:", error);
-        throw new Error("Failed to retrieve categories");
+        throw new Error("Failed to retrieve categories", { cause: error });
       }
     },
   };

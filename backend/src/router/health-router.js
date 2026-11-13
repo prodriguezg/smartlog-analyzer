@@ -31,7 +31,11 @@ export function createHealthRouter({ database, llmProvider }) {
     const checks = { database: databaseStatus, provider };
 
     if (databaseStatus === "unavailable") {
-      return response.status(503).json({ status: "unavailable", checks });
+      return response.status(503).json({
+        status: "unavailable",
+        checks,
+        error: { code: "DATABASE_UNAVAILABLE", message: "MySQL no está disponible." },
+      });
     }
 
     const status = provider.status === "ok" ? "ok" : "degraded";

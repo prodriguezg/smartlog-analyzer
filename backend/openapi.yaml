@@ -43,6 +43,7 @@ paths:
               schema:
                 allOf:
                   - $ref: '#/components/schemas/Health'
+                  - $ref: '#/components/schemas/ErrorResponse'
                   - properties:
                       status:
                         const: unavailable
@@ -52,6 +53,9 @@ paths:
                   database: unavailable
                   provider:
                     status: ok
+                error:
+                  code: DATABASE_UNAVAILABLE
+                  message: MySQL no está disponible.
   /logs:
     get:
       operationId: listLogs
@@ -77,12 +81,12 @@ paths:
                 $ref: '#/components/schemas/LogPage'
               example:
                 items:
-                  - id: 42
-                    timestamp: '2026-10-01T14:03:00Z'
-                    service: checkout
+                  - id: 23
+                    timestamp: '2026-11-12T14:06:19.096Z'
+                    service: checkout-api
                     level: ERROR
-                    message: El proveedor de pagos no respondió a tiempo.
-                    traceId: checkout-abc123
+                    message: Checkout failed after payment timeout order_id=ord-7014 status=504 duration_ms=2094
+                    traceId: 1d42b7d538724fae95c962e3d06cc5db
                 limit: 50
                 offset: 0
                 hasMore: false
@@ -100,11 +104,11 @@ paths:
             schema:
               $ref: '#/components/schemas/LogInput'
             example:
-              timestamp: '2026-10-01T14:03:00Z'
-              service: checkout
+              timestamp: '2026-11-12T14:06:19.100Z'
+              service: checkout-api
               level: ERROR
               message: El proveedor de pagos no respondió a tiempo.
-              traceId: checkout-abc123
+              traceId: 1d42b7d538724fae95c962e3d06cc5db
       responses:
         '201':
           description: Log guardado.
@@ -118,9 +122,11 @@ paths:
                     type: integer
                     minimum: 1
               example:
-                id: 42
+                id: 32
         '400':
           $ref: '#/components/responses/InvalidRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '503':
           $ref: '#/components/responses/DatabaseUnavailable'
   /logs/summary:
@@ -129,7 +135,8 @@ paths:
       summary: Cuenta los logs por servicio y nivel
       description: >-
         Aplica los filtros del listado antes de agrupar los logs. Si se envían
-        ambas fechas, `from` debe ser anterior a `to`.
+        ambas fechas, `from` debe ser anterior a `to`. Devuelve todos los grupos
+        sin paginación, ordenados por servicio y nivel ascendentes.
       parameters:
         - $ref: '#/components/parameters/LogService'
         - $ref: '#/components/parameters/LogLevel'
@@ -145,14 +152,25 @@ paths:
                 $ref: '#/components/schemas/LogSummary'
               example:
                 items:
-                  - service: checkout
+                  - service: checkout-api
                     level: ERROR
+                    count: 1
+                  - service: checkout-api
+                    level: INFO
+                    count: 1
+                  - service: inventory-service
+                    level: INFO
                     count: 2
-                  - service: payments
-                    level: WARN
+                  - service: payment-service
+                    level: DEBUG
+                    count: 1
+                  - service: payment-service
+                    level: ERROR
                     count: 1
         '400':
           $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/DatabaseUnavailable'
   /logs/analyze:
@@ -162,7 +180,8 @@ paths:
       description: >-
         Selecciona los logs por filtros o por IDs y guarda la selección completa
         junto con el análisis antes de responder. Los límites predeterminados
-        son 100 logs y 32 KiB de logs serializados. El estado se consulta en
+        son 100 logs y 32 KiB de logs serializados. Se pueden ajustar con
+        `ANALYSIS_MAX_LOGS` y `ANALYSIS_MAX_KIB`. El estado se consulta en
         `GET /api/analysis/{id}`.
       requestBody:
         required: true
@@ -172,16 +191,17 @@ paths:
               $ref: '#/components/schemas/LogAnalysisRequest'
             examples:
               byFilters:
-                summary: Selección por servicio y rango de fechas
+                summary: Selección de la traza con timeout en los datos de ejemplo
                 value:
                   filters:
-                    service: checkout
-                    from: '2026-10-01T14:00:00Z'
-                    to: '2026-10-01T15:00:00Z'
+                    traceId: 1d42b7d538724fae95c962e3d06cc5db
+                    from: '2026-11-12T14:02:00Z'
+                    to: '2026-11-12T14:11:00Z'
               byIds:
-                summary: Selección por IDs
+                summary: Selección por IDs en un volumen nuevo
+                description: Si ya hay datos, consulta GET /logs para obtener los IDs de la traza.
                 value:
-                  logIds: [42, 43]
+                  logIds: [21, 23]
       responses:
         '202':
           description: Análisis aceptado y guardado en estado pendiente.
@@ -202,6 +222,8 @@ paths:
                 status: PENDING
         '400':
           $ref: '#/components/responses/InvalidRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '422':
           description: La selección está vacía, supera un límite configurado o contiene IDs inexistentes.
           content:
@@ -261,19 +283,25 @@ paths:
                 $ref: '#/components/schemas/FindingPage'
               example:
                 items:
-                  - id: 10
+                  - id: 1
                     analysisId: 1
                     category: timeout
-                    createdAt: '2026-10-01T15:01:10Z'
-                    description: El proveedor de pagos excedió el tiempo límite de checkout.
-                    suggestion: Revisar la latencia del proveedor durante el incidente.
+                    createdAt: '2026-11-12T15:01:10Z'
+                    description: Hay evidencia de operaciones que excedieron el tiempo de espera.
+                    suggestion: Revisar la latencia y los límites de tiempo de los servicios afectados.
                     evidence:
-                      - id: 42
-                        timestamp: '2026-10-01T14:03:00Z'
-                        service: checkout
+                      - id: 21
+                        timestamp: '2026-11-12T14:06:19.048Z'
+                        service: payment-service
                         level: ERROR
-                        message: El proveedor de pagos no respondió a tiempo.
-                        traceId: checkout-abc123
+                        message: Payment provider connection timeout order_id=ord-7014 code=ETIMEDOUT timeout_ms=2000 duration_ms=2001
+                        traceId: 1d42b7d538724fae95c962e3d06cc5db
+                      - id: 23
+                        timestamp: '2026-11-12T14:06:19.096Z'
+                        service: checkout-api
+                        level: ERROR
+                        message: Checkout failed after payment timeout order_id=ord-7014 status=504 duration_ms=2094
+                        traceId: 1d42b7d538724fae95c962e3d06cc5db
                 limit: 50
                 offset: 0
                 hasMore: false
@@ -309,38 +337,44 @@ paths:
                   value:
                     id: 1
                     status: PENDING
-                    createdAt: '2026-10-01T15:01:00Z'
-                    logIds: [42, 43]
+                    createdAt: '2026-11-12T15:01:00Z'
+                    logIds: [15, 16, 17, 21, 22, 23]
                 completed:
                   value:
                     id: 1
                     status: COMPLETED
-                    createdAt: '2026-10-01T15:01:00Z'
-                    finishedAt: '2026-10-01T15:01:10Z'
-                    logIds: [42, 43]
+                    createdAt: '2026-11-12T15:01:00Z'
+                    finishedAt: '2026-11-12T15:01:10Z'
+                    logIds: [15, 16, 17, 21, 22, 23]
                     report:
-                      summary: La traza de checkout muestra un timeout del proveedor de pagos.
+                      summary: El análisis de 6 registros generó 1 hallazgo.
                       findings:
-                        - id: 10
+                        - id: 1
                           analysisId: 1
                           category: timeout
-                          createdAt: '2026-10-01T15:01:10Z'
-                          description: El proveedor de pagos excedió el tiempo límite de checkout.
-                          suggestion: Revisar la latencia del proveedor durante el incidente.
+                          createdAt: '2026-11-12T15:01:10Z'
+                          description: Hay evidencia de operaciones que excedieron el tiempo de espera.
+                          suggestion: Revisar la latencia y los límites de tiempo de los servicios afectados.
                           evidence:
-                            - id: 42
-                              timestamp: '2026-10-01T14:03:00Z'
-                              service: checkout
+                            - id: 21
+                              timestamp: '2026-11-12T14:06:19.048Z'
+                              service: payment-service
                               level: ERROR
-                              message: El proveedor de pagos no respondió a tiempo.
-                              traceId: checkout-abc123
+                              message: Payment provider connection timeout order_id=ord-7014 code=ETIMEDOUT timeout_ms=2000 duration_ms=2001
+                              traceId: 1d42b7d538724fae95c962e3d06cc5db
+                            - id: 23
+                              timestamp: '2026-11-12T14:06:19.096Z'
+                              service: checkout-api
+                              level: ERROR
+                              message: Checkout failed after payment timeout order_id=ord-7014 status=504 duration_ms=2094
+                              traceId: 1d42b7d538724fae95c962e3d06cc5db
                 failed:
                   value:
                     id: 2
                     status: FAILED
-                    createdAt: '2026-10-01T15:02:00Z'
-                    finishedAt: '2026-10-01T15:02:30Z'
-                    logIds: [42, 43]
+                    createdAt: '2026-11-12T15:02:00Z'
+                    finishedAt: '2026-11-12T15:02:30Z'
+                    logIds: [21, 23]
                     error:
                       code: PROVIDER_TIMEOUT
                       message: El proveedor de análisis no respondió a tiempo.
@@ -362,7 +396,7 @@ paths:
     get:
       operationId: listCategories
       summary: Lista el catálogo completo de categorías
-      description: Devuelve todas las categorías sin paginación para el filtro de hallazgos.
+      description: Devuelve todas las categorías ordenadas por código ascendente, sin paginación.
       responses:
         '200':
           description: Catálogo de categorías. Si el catálogo está vacío, `items` está vacío.
@@ -378,22 +412,24 @@ paths:
                       $ref: '#/components/schemas/Category'
               example:
                 items:
-                  - code: timeout
-                    description: Una operación superó el tiempo de espera configurado.
+                  - code: authentication_error
+                    description: Se rechazaron las credenciales o faltan permisos para la operación.
+                  - code: configuration_error
+                    description: Falta una configuración requerida o su valor es inválido.
                   - code: connection_error
                     description: No se pudo establecer o mantener una conexión de red.
                   - code: dependency_failure
                     description: Un servicio dependiente no estaba disponible o devolvió un error.
-                  - code: resource_exhaustion
-                    description: Se agotó un recurso como memoria, espacio en disco o conexiones.
-                  - code: configuration_error
-                    description: Falta una configuración requerida o su valor es inválido.
-                  - code: authentication_error
-                    description: Se rechazaron las credenciales o faltan permisos para la operación.
                   - code: invalid_data
                     description: Los datos tienen un formato inválido o incumplen una regla de validación.
+                  - code: resource_exhaustion
+                    description: Se agotó un recurso como memoria, espacio en disco o conexiones.
+                  - code: timeout
+                    description: Una operación superó el tiempo de espera configurado.
         '400':
           $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/DatabaseUnavailable'
 components:
@@ -455,6 +491,22 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Ocurrió un error interno al procesar la solicitud.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: El cuerpo de la solicitud supera el límite permitido.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: PAYLOAD_TOO_LARGE
+              message: El cuerpo de la solicitud supera el límite permitido.
     DatabaseUnavailable:
       description: MySQL no está disponible.
       content:

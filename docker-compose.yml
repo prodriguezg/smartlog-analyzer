@@ -19,6 +19,8 @@ services:
       DB_USER: ${MYSQL_USER:-smartlog}
       DB_PASSWORD: ${MYSQL_PASSWORD:-smartlog-dev}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      ANALYSIS_MAX_LOGS: ${ANALYSIS_MAX_LOGS-100}
+      ANALYSIS_MAX_KIB: ${ANALYSIS_MAX_KIB-32}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
     depends_on:

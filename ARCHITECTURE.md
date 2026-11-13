@@ -45,17 +45,17 @@ flowchart LR
 El monorepo organiza la interfaz en `frontend/` y la API y el worker en `backend/`. Un `docker-compose.yml` en la raíz levanta cuatro servicios con `docker compose up`.
 
 - `frontend` compila React con Vite y sirve los archivos con Nginx. Publica el puerto de la demo, por ejemplo `localhost:8080`, y reenvía `/api/*` al servicio `backend` conservando el prefijo. La interfaz y la API están disponibles desde el mismo origen.
-- `backend` ejecuta Express, Sequelize y el worker. Compose espera a que pase el healthcheck de MySQL antes de iniciarlo. El backend aplica las migraciones y los seeds pendientes y marca los análisis interrumpidos antes de aceptar solicitudes.
+- `backend` ejecuta Express, Sequelize y el worker. Compose espera a que pase el healthcheck de MySQL en el arranque inicial. El backend reintenta la conexión durante el arranque si MySQL aún no está listo, como puede suceder al reiniciar ambos servicios. Luego aplica las migraciones y los seeds pendientes y marca los análisis interrumpidos antes de aceptar solicitudes.
 - `db` ejecuta MySQL con InnoDB. Express y phpMyAdmin se conectan a MySQL por la red interna de Compose.
 - `phpmyadmin` permite inspeccionar el esquema y los datos de MySQL desde un puerto local independiente, `127.0.0.1:8081` por defecto. Compose lo inicia cuando MySQL pasa el healthcheck.
 
 La interfaz usa la API para mostrar el resumen, filtrar y paginar logs, iniciar análisis por filtros o IDs y consultar hallazgos con su evidencia. Obtiene el catálogo en `GET /api/categories` para mostrar las descripciones y usar los códigos en el filtro de hallazgos. Se propone TanStack Query para las consultas y el polling de cada análisis, que se detiene en `COMPLETED` o `FAILED`.
 
-MySQL conserva sus datos en un volumen. El catálogo y los logs de ejemplo se cargan automáticamente mediante seeds con historial persistido y claves estables que permiten repetir una carga interrumpida. El README documentará puertos, red, variables de entorno y los pasos de la demo, incluido el intervalo fijo de los logs de ejemplo.
+MySQL conserva sus datos en un volumen. El catálogo y los logs de ejemplo se cargan automáticamente mediante seeds con historial persistido. El catálogo usa códigos estables y la carga de logs se confirma en la misma transacción que su registro en el historial. El README documenta puertos, red, variables de entorno y los pasos de la demo, incluido el intervalo fijo de los logs de ejemplo.
 
 ### Ciclo del análisis
 
-1. `POST /api/logs/analyze` acepta filtros o una lista explícita de IDs. Resuelve la selección en ese momento y valida que tenga entradas, que los IDs solicitados existan y que el conjunto completo esté dentro de los límites. Como punto de partida se proponen **100 logs y 32 KiB de logs serializados**, configurables y sujetos a verificación con el modelo elegido. Si la selección supera un tope, la respuesta indica cómo acotarla.
+1. `POST /api/logs/analyze` acepta filtros o una lista explícita de IDs. Resuelve la selección en ese momento y valida que tenga entradas, que los IDs solicitados existan y que el conjunto completo esté dentro de los límites. Los topes predeterminados son **100 logs y 32 KiB de logs serializados** y se ajustan con `ANALYSIS_MAX_LOGS` y `ANALYSIS_MAX_KIB`. Si la selección supera un tope, la respuesta indica cómo acotarla.
 2. La API guarda el análisis en `PENDING` y su selección exacta en `analysis_logs`, en una sola transacción. Devuelve `202 Accepted` con el ID después del commit. Si falta la configuración local requerida de OpenAI, devuelve `503` antes de crear el registro.
 3. Un worker dentro de la aplicación consulta los pendientes de MySQL y procesa uno a la vez. El prototipo se ejecuta como una sola instancia. El worker lee los logs de la selección guardada y el catálogo, y llama al proveedor con un tiempo límite. La llamada se realiza fuera de la transacción de base de datos.
 4. El servicio valida el resumen, los hallazgos y las referencias antes de guardar el resultado. Las categorías deben pertenecer al catálogo y cada log citado debe pertenecer a la selección de ese análisis. El informe, los hallazgos, sus vínculos y el cambio a `COMPLETED` se escriben en una sola transacción. Un timeout, una respuesta inválida o un error del proveedor dejan el análisis en `FAILED` con un motivo consultable.
@@ -107,7 +107,7 @@ Los ejemplos del contrato siguen el recorrido del seed e incluyen selección por
 
 En `GET /api/analysis/findings`, si se combinan servicio y fechas, un mismo log de evidencia debe cumplir ambos filtros. Cada hallazgo aparece una sola vez aunque coincidan varios logs. Los listados de logs y hallazgos usan `limit` de 1 a 100 (por defecto 50), `offset` entero desde 0 (por defecto 0) y `hasMore` calculado a partir de una fila adicional. El orden propuesto es descendente por fecha del evento para logs y por fecha de creación para hallazgos, con ID descendente como desempate. El tamaño de la página es independiente del límite de un análisis.
 
-Las respuestas de error usan `error.code` y `error.message`. Se propone `400` para parámetros inválidos o modos de selección combinados, `422` para una selección vacía, demasiado grande o con IDs inexistentes, `404` para un análisis inexistente y `503` para dependencias indispensables para la operación que estén indisponibles.
+Las respuestas de error de la API usan `error.code` y `error.message`. Devuelven `400` para parámetros inválidos o modos de selección combinados, `404` para un análisis o una ruta inexistentes, `413` para un cuerpo HTTP que supera el límite de tamaño, `422` para una selección vacía, demasiado grande o con IDs inexistentes y `503` para dependencias indispensables que estén indisponibles. La respuesta `503` de health incluye también el estado y el resultado de cada comprobación.
 
 ## Decisiones y alternativas
 

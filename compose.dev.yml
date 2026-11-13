@@ -30,6 +30,9 @@ services:
   backend:
     build:
       target: development
+    command: ["node", "--inspect=0.0.0.0:9229", "backend/src/server.js"]
+    ports:
+      - '127.0.0.1:9229:9229'
     develop:
       watch:
         - action: sync+restart

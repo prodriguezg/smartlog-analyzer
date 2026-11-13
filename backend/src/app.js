@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import swaggerUi from "swagger-ui-express";
 import { createOpenApiValidationMiddleware } from "./middleware/openapi-validation-middleware.js";
+import { handleHttpError, sendHttpError } from "./middleware/service-error-response.js";
 import { createHealthRouter } from "./router/health-router.js";
 import { createLogsRouter } from "./router/logs-router.js";
 import { createAnalysisRouter } from "./router/analysis-router.js";
@@ -18,7 +19,7 @@ const paths = {
   spec: "/api/openapi.yaml",
 };
 
-export function createApp({ database, llmProvider }) {
+export function createApp({ database, llmProvider, analysisLimits }) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ strict: false }));
@@ -38,9 +39,14 @@ export function createApp({ database, llmProvider }) {
   );
 
   app.use(paths.health, createHealthRouter({ database, llmProvider }));
-  app.use(paths.logs, createLogsRouter({ database, path: paths.logs }));
-  app.use(paths.analysis, createAnalysisRouter({ database, llmProvider }));
+  app.use(paths.logs, createLogsRouter({ database, llmProvider, analysisLimits }));
+  app.use(paths.analysis, createAnalysisRouter({ database }));
   app.use(paths.categories, createCategoriesRouter({ database }));
+
+  app.use("/api", (_request, response) => {
+    return sendHttpError(response, 404, "ROUTE_NOT_FOUND", "La ruta solicitada no existe.");
+  });
+  app.use(handleHttpError);
 
   return app;
 }

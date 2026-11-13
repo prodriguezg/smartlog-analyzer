@@ -1,14 +1,16 @@
 import { Router } from "express";
+import { sendServiceError } from "../middleware/service-error-response.js";
+import { analysisService } from "../services/analysis-service.js";
 
-export function createAnalysisRouter({ database, llmProvider }) {
+export function createAnalysisRouter({ database }) {
   const router = Router();
+  const service = analysisService({ database });
 
   router.get("/findings", async (req, res) => {
     try {
-      return res.status(200).send({ op: "findings" });
+      return res.json(await service.getFindings(req.query));
     } catch (error) {
-      console.error("Error retrieving findings:", error);
-      return res.status(500).send({ error: "Failed to retrieve findings" });
+      return sendServiceError(res, error);
     }
   });
 
@@ -16,10 +18,15 @@ export function createAnalysisRouter({ database, llmProvider }) {
     const { id } = req.params;
 
     try {
-      return res.status(200).send({ op: "analysis", id: id });
+      const analysis = await service.getAnalysis(id);
+      if (!analysis) {
+        return res.status(404).json({
+          error: { code: "ANALYSIS_NOT_FOUND", message: "El análisis solicitado no existe." },
+        });
+      }
+      return res.json(analysis);
     } catch (error) {
-      console.error("Error retrieving analysis:", error);
-      return res.status(500).send({ error: "Failed to retrieve analysis" });
+      return sendServiceError(res, error);
     }
   });
 

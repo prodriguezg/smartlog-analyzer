@@ -105,6 +105,8 @@ export function createOpenAIProvider({ apiKey, model, fetch = globalThis.fetch }
   }
 
   return {
+    configurationIssue,
+
     async analyze({ logs, categories }) {
       if (configurationIssue) {
         throw providerError("PROVIDER_UNAVAILABLE", configurationIssue);

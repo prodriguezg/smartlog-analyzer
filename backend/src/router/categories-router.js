@@ -1,16 +1,16 @@
 import { Router } from "express";
+import { sendServiceError } from "../middleware/service-error-response.js";
 import { categoryService } from "../services/category-service.js";
 
 export function createCategoriesRouter({ database }) {
   const router = Router();
+  const service = categoryService({ database });
 
-  router.get("/", async (req, res) => {
+  router.get("/", async (_req, res) => {
     try {
-      const categories = await categoryService({ database }).getCategories();
-      return res.status(200).send({ op: "categories", data: categories });
+      return res.json({ items: await service.getCategories() });
     } catch (error) {
-      console.error("Error retrieving categories:", error);
-      return res.status(500).send({ error: "Failed to retrieve categories" });
+      return sendServiceError(res, error);
     }
   });
 

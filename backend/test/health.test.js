@@ -60,6 +60,7 @@ describe("GET /api/health with MySQL", function () {
       expect(response.body).to.deep.equal({
         status: "unavailable",
         checks: { database: "unavailable", provider: { status: "ok" } },
+        error: { code: "DATABASE_UNAVAILABLE", message: "MySQL no está disponible." },
       });
     } finally {
       await rejectedDatabase.close();
@@ -127,6 +128,7 @@ describe("GET /api/health provider checks", function () {
 
     expect(body).to.deep.equal({
       status: "unavailable",
+      error: { code: "DATABASE_UNAVAILABLE", message: "MySQL no está disponible." },
       checks: {
         database: "unavailable",
         provider: {

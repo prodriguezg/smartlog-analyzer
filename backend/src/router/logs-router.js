@@ -1,18 +1,25 @@
 import { Router } from "express";
+import { sendServiceError } from "../middleware/service-error-response.js";
+import { logService } from "../services/log-service.js";
 
-export function createLogsRouter({ database, path }) {
+export function createLogsRouter({ database, llmProvider, analysisLimits }) {
   const router = Router();
+  const service = logService({ database, llmProvider, analysisLimits });
 
   router.get("/", async (req, res) => {
-    return res.send({ op: "logs" });
+    try {
+      const logs = await service.getLogs(req.query);
+      return res.status(200).json(logs);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
   });
 
   router.get("/summary", async (req, res) => {
     try {
-      return res.status(200).send({ op: "log summary" });
+      return res.json(await service.getSummary(req.query));
     } catch (error) {
-      console.error("Error retrieving log summary:", error);
-      return res.status(500).send({ error: "Failed to retrieve log summary" });
+      return sendServiceError(res, error);
     }
   });
 
@@ -20,11 +27,10 @@ export function createLogsRouter({ database, path }) {
     const { body } = req;
 
     try {
-      await database.insertLog(body);
-      return res.status(201).send({ message: "Log inserted successfully" });
+      const log = await service.saveLog(body);
+      return res.status(201).json(log);
     } catch (error) {
-      console.error("Error inserting log:", error);
-      return res.status(500).send({ error: "Failed to insert log" });
+      return sendServiceError(res, error);
     }
   });
 
@@ -32,11 +38,10 @@ export function createLogsRouter({ database, path }) {
     const { body } = req;
 
     try {
-      const analysisResult = await database.analyzeLog(body);
-      return res.status(200).send(analysisResult);
+      const analysis = await service.analyze(body);
+      return res.status(202).json(analysis);
     } catch (error) {
-      console.error("Error analyzing log:", error);
-      return res.status(500).send({ error: "Failed to analyze log" });
+      return sendServiceError(res, error);
     }
   });
 
