@@ -66,6 +66,8 @@ Con `PORT=3000`, puedes consultar el backend en <http://127.0.0.1:3000/api/healt
 
 Al iniciar, el backend carga 31 logs de ejemplo del 12 de noviembre de 2026 entre las 14:02 y las 14:11 UTC. Para investigar una compra que falló por un timeout, abre el [explorador](http://127.0.0.1:8080) y revisa el resumen por servicio y nivel. Abre el registro `Checkout failed after payment timeout` y usa **Ver traza** para consultar sus seis eventos. Elige **Analizar filtros** y abre **Ver evidencia (2)** en el informe. En **Hallazgos**, aplica la categoría `timeout` para volver a consultar el resultado.
 
+En **Análisis** puedes abrir dos informes guardados del proveedor mock y consultar la evidencia de sus tres hallazgos. Para explorar los 36 logs adicionales, filtra el 13 de noviembre de 2026 entre las 13:41 y las 13:57 UTC. La traza `ba8b9b4992b54c8ba0d4346d24e1d7db` sigue una compra exitosa cuyo correo de confirmación se envió tras un reintento.
+
 También puedes recorrer el flujo por API desde [Swagger UI](http://127.0.0.1:8080/api/docs/) con **Try it out**.
 
 1. Ejecuta `GET /logs/summary` con `from=2026-11-12T14:02:00Z` y `to=2026-11-12T14:11:00Z` para ver los conteos por servicio y nivel. El inicio es inclusivo y el fin es exclusivo.
