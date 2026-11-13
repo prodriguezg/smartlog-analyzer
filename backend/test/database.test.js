@@ -66,7 +66,11 @@ describe("MySQL schema and category catalog", function () {
     expect(await Category.count()).to.equal(7);
     expect((await Category.findByPk("timeout")).description).to.equal("Descripción propia.");
     const [history] = await database.query("SELECT name FROM schema_migrations ORDER BY name");
-    expect(history).to.deep.equal([{ name: "001-initial-schema" }, { name: "002-seed-example-logs" }]);
+    expect(history).to.deep.equal([
+      { name: "001-initial-schema" },
+      { name: "002-seed-example-logs" },
+      { name: "003-seed-demo-data" },
+    ]);
   });
 
   it("seeds example logs once and exposes their shared traces through the API", async () => {
@@ -84,6 +88,51 @@ describe("MySQL schema and category catalog", function () {
     ]));
     expect(body.items.every((log) => log.traceId === traceId)).to.equal(true);
     expect(body.items[0]).to.include({ service: "checkout-api", level: "ERROR" });
+  });
+
+  it("restores the demo analyses, selections and evidence once", async () => {
+    const { Analysis, Finding, AnalysisLog, FindingLog } = database.models;
+    await runMigrations(database);
+    expect(await Analysis.count()).to.equal(2);
+    expect(await Finding.count()).to.equal(3);
+    expect(await AnalysisLog.count()).to.equal(11);
+    expect(await FindingLog.count()).to.equal(3);
+
+    const api = request(createApp({ database }));
+    const { body: page } = await api.get("/api/analysis").expect(200);
+    const expected = [
+      {
+        createdAt: "2026-11-13T15:01:29.461Z",
+        logIds: [6, 7, 14, 15, 18, 20, 23, 24, 28, 31],
+        evidence: [["resource_exhaustion", [20]], ["timeout", [23]]],
+      },
+      { createdAt: "2026-11-13T15:00:24.598Z", logIds: [23], evidence: [["timeout", [23]]] },
+    ];
+    expect(page.items).to.have.lengthOf(expected.length);
+    for (const [index, { id, status, provider, createdAt }] of page.items.entries()) {
+      expect({ status, provider, createdAt }).to.deep.equal({
+        status: "COMPLETED", provider: "mock", createdAt: expected[index].createdAt,
+      });
+      const { body } = await api.get(`/api/analysis/${id}`).expect(200);
+      expect(body.logIds).to.deep.equal(expected[index].logIds);
+      expect(body.report.findings.map(({ category, evidence }) => [category, evidence.map(({ id }) => id)]))
+        .to.deep.equal(expected[index].evidence);
+    }
+  });
+
+  it("seeds new demo traces and makes them available through log filters", async () => {
+    const api = request(createApp({ database }));
+    const interval = { from: "2026-11-13T13:41:00Z", to: "2026-11-13T13:57:00Z" };
+    const { body: page } = await api.get("/api/logs").query(interval).expect(200);
+    expect(page.items).to.have.lengthOf(36);
+    expect(new Set(page.items.map(({ traceId }) => traceId).filter(Boolean)).size).to.equal(6);
+    const { body: trace } = await api.get("/api/logs").query({
+      traceId: "ba8b9b4992b54c8ba0d4346d24e1d7db",
+    }).expect(200);
+    expect(trace.items).to.have.lengthOf(8);
+    expect(new Set(trace.items.map(({ service }) => service))).to.deep.equal(new Set([
+      "checkout-api", "inventory-service", "payment-service", "notification-service",
+    ]));
   });
 
   it("generates mock findings from the seeded logs selected through the API", async () => {
