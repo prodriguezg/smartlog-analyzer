@@ -3,6 +3,15 @@ import { useEffect, useRef } from 'react';
 const severityTones = {
   ERROR: 'error', FATAL: 'error', WARN: 'warn', WARNING: 'warn', INFO: 'info', DEBUG: 'debug',
 };
+const providerLabels = new Map([['mock', 'Mock'], ['openai', 'OpenAI']]);
+
+export function AnalysisProvider({ provider, showLabel = false }) {
+  return (
+    <span className="analysis-provider">
+      {showLabel && 'Proveedor: '}{providerLabels.get(provider) ?? provider}
+    </span>
+  );
+}
 
 export function Severity({ level }) {
   const tone = severityTones[level.toUpperCase()] ?? 'neutral';

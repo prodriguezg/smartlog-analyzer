@@ -252,6 +252,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /analysis:
+    get:
+      operationId: listAnalyses
+      summary: Lista los análisis finalizados
+      description: >-
+        Devuelve los análisis `COMPLETED` y `FAILED` por fecha de creación
+        descendente, con ID descendente como desempate.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Página de análisis. Si no hay resultados, `items` está vacío.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisPage'
+              example:
+                items:
+                  - id: 1
+                    status: COMPLETED
+                    createdAt: '2026-11-12T15:01:00Z'
+                    provider: mock
+                limit: 50
+                offset: 0
+                hasMore: false
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
   /analysis/findings:
     get:
       operationId: listFindings
@@ -316,7 +348,8 @@ paths:
       description: >-
         Devuelve los IDs de la selección guardada. `PENDING` abarca la espera
         y la ejecución. `COMPLETED` incluye el informe y `FAILED` incluye el
-        código y el motivo del fallo.
+        código y el motivo del fallo. Ambos estados finales incluyen el
+        identificador del proveedor o `null` si no se pudo determinar.
       parameters:
         - name: id
           in: path
@@ -343,6 +376,7 @@ paths:
                   value:
                     id: 1
                     status: COMPLETED
+                    provider: mock
                     createdAt: '2026-11-12T15:01:00Z'
                     finishedAt: '2026-11-12T15:01:10Z'
                     logIds: [15, 16, 17, 21, 22, 23]
@@ -372,6 +406,7 @@ paths:
                   value:
                     id: 2
                     status: FAILED
+                    provider: openai
                     createdAt: '2026-11-12T15:02:00Z'
                     finishedAt: '2026-11-12T15:02:30Z'
                     logIds: [21, 23]
@@ -651,6 +686,34 @@ components:
       oneOf:
         - required: [filters]
         - required: [logIds]
+    AnalysisPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMetadata'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                required: [id, status, createdAt, provider]
+                properties:
+                  id:
+                    type: integer
+                    minimum: 1
+                  status:
+                    type: string
+                    enum: [COMPLETED, FAILED]
+                  createdAt:
+                    type: string
+                    format: date-time
+                  provider:
+                    $ref: '#/components/schemas/AnalysisProvider'
+    AnalysisProvider:
+      type: [string, 'null']
+      minLength: 1
+      maxLength: 64
+      description: Identificador guardado del proveedor (por ejemplo, `mock` u `openai`). Vale `null` si no se pudo determinar.
     Analysis:
       type: object
       required: [id, status, createdAt, logIds]
@@ -661,6 +724,8 @@ components:
         status:
           type: string
           enum: [PENDING, COMPLETED, FAILED]
+        provider:
+          $ref: '#/components/schemas/AnalysisProvider'
         createdAt:
           type: string
           format: date-time
@@ -690,15 +755,16 @@ components:
         - properties:
             status:
               const: PENDING
+            provider: false
             finishedAt: false
             report: false
             error: false
-        - required: [finishedAt, report]
+        - required: [finishedAt, provider, report]
           properties:
             status:
               const: COMPLETED
             error: false
-        - required: [finishedAt, error]
+        - required: [finishedAt, provider, error]
           properties:
             status:
               const: FAILED

@@ -1,7 +1,7 @@
 import { col } from "sequelize";
 import { formatLog, logFilters, logOrder } from "./log-service.js";
 
-const findingOrder = [["createdAt", "DESC"], ["id", "DESC"]];
+const newestFirst = [["createdAt", "DESC"], ["id", "DESC"]];
 const evidenceInclude = { association: "evidence", through: { attributes: [] } };
 const providerErrors = new Map([
   ["PROVIDER_TIMEOUT", "El proveedor de análisis no respondió a tiempo."],
@@ -42,9 +42,9 @@ function validateReport(report, categories, logs) {
 export function analysisService({ database, llmProvider }) {
   let processing;
 
-  async function failAnalysis(id, errorCode, errorMessage) {
+  async function failAnalysis(id, errorCode, errorMessage, provider = null) {
     await database.models.Analysis.update(
-      { status: "FAILED", finishedAt: new Date(), errorCode, errorMessage },
+      { status: "FAILED", provider, finishedAt: new Date(), errorCode, errorMessage },
       { where: { id, status: "PENDING" } },
     );
   }
@@ -67,13 +67,14 @@ export function analysisService({ database, llmProvider }) {
       return true;
     }
 
+    const provider = llmProvider?.name ?? null;
     let report;
     try {
       report = await llmProvider.analyze({ logs, categories });
       validateReport(report, categories, logs);
     } catch (error) {
       const code = providerErrors.has(error?.code) ? error.code : "PROVIDER_ERROR";
-      await failAnalysis(analysis.id, code, providerErrors.get(code));
+      await failAnalysis(analysis.id, code, providerErrors.get(code), provider);
       return true;
     }
 
@@ -81,7 +82,7 @@ export function analysisService({ database, llmProvider }) {
       await database.transaction(async (transaction) => {
         const finishedAt = new Date();
         const [updated] = await Analysis.update(
-          { status: "COMPLETED", summary: report.summary, finishedAt },
+          { status: "COMPLETED", provider, summary: report.summary, finishedAt },
           { where: { id: analysis.id, status: "PENDING" }, transaction },
         );
         if (!updated) return;
@@ -98,7 +99,7 @@ export function analysisService({ database, llmProvider }) {
       });
     } catch (error) {
       console.error("Error saving analysis report:", error);
-      await failAnalysis(analysis.id, "ANALYSIS_ERROR", "No se pudo guardar el resultado del análisis.");
+      await failAnalysis(analysis.id, "ANALYSIS_ERROR", "No se pudo guardar el resultado del análisis.", provider);
     }
     return true;
   }
@@ -120,6 +121,26 @@ export function analysisService({ database, llmProvider }) {
       }, { where: { status: "PENDING" } });
     },
 
+    async getAnalyses({ limit = 50, offset = 0 } = {}) {
+      try {
+        const rows = await database.models.Analysis.findAll({
+          attributes: ["id", "status", "createdAt", "provider"],
+          where: { status: ["COMPLETED", "FAILED"] },
+          order: newestFirst,
+          limit: limit + 1,
+          offset,
+          raw: true,
+        });
+        const items = rows.slice(0, limit).map(({ id, status, createdAt, provider }) => ({
+          id, status, createdAt: createdAt.toISOString(), provider,
+        }));
+        return { items, limit, offset, hasMore: rows.length > limit };
+      } catch (error) {
+        console.error("Error retrieving analyses:", error);
+        throw new Error("No se pudieron consultar los análisis.", { cause: error });
+      }
+    },
+
     async getAnalysis(id) {
       try {
         const analysis = await database.models.Analysis.findByPk(id, {
@@ -127,15 +148,15 @@ export function analysisService({ database, llmProvider }) {
         });
         if (!analysis) return null;
 
-        const { status, createdAt, finishedAt, logs, summary, errorCode, errorMessage } = analysis;
+        const { status, createdAt, finishedAt, logs, provider, summary, errorCode, errorMessage } = analysis;
         const logIds = logs.map(({ id }) => id).sort((a, b) => a - b);
         const result = { id: analysis.id, status, createdAt, logIds };
         if (status === "COMPLETED") {
-          const findings = await analysis.getFindings({ include: [evidenceInclude], order: findingOrder });
-          return { ...result, finishedAt, report: { summary, findings: findings.map(formatFinding) } };
+          const findings = await analysis.getFindings({ include: [evidenceInclude], order: newestFirst });
+          return { ...result, finishedAt, provider, report: { summary, findings: findings.map(formatFinding) } };
         }
         if (status === "FAILED") {
-          return { ...result, finishedAt, error: { code: errorCode, message: errorMessage } };
+          return { ...result, finishedAt, provider, error: { code: errorCode, message: errorMessage } };
         }
         return result;
       } catch (error) {
@@ -162,7 +183,7 @@ export function analysisService({ database, llmProvider }) {
             group: [col("Finding.id"), col("Finding.created_at")],
             subQuery: false,
             raw: true,
-            order: findingOrder,
+            order: newestFirst,
             limit: limit + 1,
             offset,
             transaction,
@@ -171,7 +192,7 @@ export function analysisService({ database, llmProvider }) {
           const findings = ids.length === 0 ? [] : await Finding.findAll({
             where: { id: ids },
             include: [evidenceInclude],
-            order: findingOrder,
+            order: newestFirst,
             transaction,
           });
           return { items: findings.map(formatFinding), limit, offset, hasMore: matches.length > limit };

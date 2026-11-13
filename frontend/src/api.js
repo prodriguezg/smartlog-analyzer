@@ -36,6 +36,11 @@ function pageOptions(path, filters, offset) {
 
 export const logsOptions = (filters, offset) => pageOptions('logs', filters, offset);
 export const findingsOptions = (filters, offset) => pageOptions('analysis/findings', filters, offset);
+export const analysesKey = ['analyses'];
+export const analysesOptions = (offset) => ({
+  ...pageOptions('analysis', {}, offset),
+  queryKey: [...analysesKey, offset],
+});
 
 export function summaryOptions(filters) {
   return {

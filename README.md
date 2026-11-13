@@ -20,13 +20,47 @@ docker compose up --build
 
 Nginx sirve React y reenvía `/api/` a Express por la red interna de Compose. Express y phpMyAdmin se conectan a MySQL por esa red. MySQL guarda los datos en el volumen `mysql-data`, que se conserva al ejecutar `docker compose down`.
 
-Compose arranca con valores locales predeterminados. Puedes copiar `.env.example` a `.env` para configurar `APP_PORT` y `PHPMYADMIN_PORT`, los puertos locales de la aplicación y phpMyAdmin. MySQL aplica `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` y `MYSQL_ROOT_PASSWORD` al inicializar un volumen nuevo.
+## Configuración del backend con `.env`
+
+### Con Docker Compose
+
+Compose arranca con valores locales predeterminados. Si quieres cambiarlos y todavía no tienes un `.env`, crea el archivo desde la raíz del repositorio.
+
+```bash
+cp .env.example .env
+```
+
+Edita el `.env` de la raíz. Compose lee ese archivo al arrancar e inyecta las variables declaradas en `docker-compose.yml` en los servicios correspondientes. Después de editarlo, vuelve a ejecutar el comando `docker compose up` que usaste para arrancar. Git ignora `.env`, así que puedes guardar allí las credenciales locales.
+
+- `LLM_PROVIDER` usa `mock` de forma predeterminada y funciona sin clave. Para usar OpenAI, define `LLM_PROVIDER=openai` y completa `OPENAI_API_KEY` y `OPENAI_MODEL`.
+- `MYSQL_DATABASE`, `MYSQL_USER` y `MYSQL_PASSWORD` se convierten en `DB_NAME`, `DB_USER` y `DB_PASSWORD` para el backend, que se conecta al servicio `db`. MySQL aplica estas credenciales y `MYSQL_ROOT_PASSWORD` al inicializar un volumen nuevo.
+- `APP_PORT` y `PHPMYADMIN_PORT` configuran los puertos locales de la aplicación y phpMyAdmin.
+
+El tamaño de una selección de análisis se configura con `ANALYSIS_MAX_LOGS` y `ANALYSIS_MAX_KIB`. Los valores predeterminados son 100 logs y 32 KiB de logs serializados en UTF-8. Ambas variables aceptan enteros positivos. Si la selección supera alguno de los topes, la API devuelve `422` con el límite que se superó.
 
 En phpMyAdmin, inicia sesión con `MYSQL_USER` y `MYSQL_PASSWORD` y elige la base `MYSQL_DATABASE` en la barra lateral. Con los valores predeterminados, usa el usuario `smartlog`, la contraseña `smartlog-dev` y la base `smartlog`. La pestaña **Estructura** muestra las tablas y, al elegir una, sus columnas e índices.
 
-El proveedor predeterminado es `mock`. Para comprobar OpenAI con Compose, configura `LLM_PROVIDER=openai`, `OPENAI_API_KEY` y `OPENAI_MODEL` en `.env`.
+### Backend local con Node.js
 
-El tamaño de una selección de análisis se configura con `ANALYSIS_MAX_LOGS` y `ANALYSIS_MAX_KIB`. Los valores predeterminados son 100 logs y 32 KiB de logs serializados en UTF-8. Ambas variables aceptan enteros positivos. Si la selección supera alguno de los topes, la API devuelve `422` con el límite que se superó.
+Si ejecutas Express fuera de Compose, necesitas Node.js 24, las dependencias instaladas con `npm ci` y una instancia de MySQL accesible con la base y el usuario ya creados. Crea `backend/.env` con los valores de tu instancia. Por ejemplo, para MySQL local con las credenciales de desarrollo, usa lo siguiente.
+
+```dotenv
+PORT=3000
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=smartlog
+DB_USER=smartlog
+DB_PASSWORD=smartlog-dev
+LLM_PROVIDER=mock
+```
+
+Puedes añadir las mismas variables del proveedor y de los límites de análisis que en Compose. Desde la raíz del repositorio, carga el archivo explícitamente al iniciar el backend.
+
+```bash
+node --env-file=backend/.env backend/src/server.js
+```
+
+Con `PORT=3000`, puedes consultar el backend en <http://127.0.0.1:3000/api/health>.
 
 ## Demo con los logs de ejemplo
 

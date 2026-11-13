@@ -6,6 +6,14 @@ export function createAnalysisRouter({ database }) {
   const router = Router();
   const service = analysisService({ database });
 
+  router.get("/", async (req, res) => {
+    try {
+      return res.json(await service.getAnalyses(req.query));
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  });
+
   router.get("/findings", async (req, res) => {
     try {
       return res.json(await service.getFindings(req.query));
