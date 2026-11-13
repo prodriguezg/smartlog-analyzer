@@ -8,29 +8,511 @@ paths:
   /health:
     get:
       operationId: getHealth
-      summary: Comprueba si la API puede consultar MySQL
+      summary: Informa el estado de MySQL y del proveedor de análisis
       responses:
         '200':
-          description: La API puede consultar MySQL
+          description: MySQL está disponible. Si el proveedor presenta problemas, el estado es `degraded`.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Health'
-              example:
-                status: ok
-                checks:
-                  database: ok
+                allOf:
+                  - $ref: '#/components/schemas/Health'
+                  - properties:
+                      status:
+                        enum: [ok, degraded]
+              examples:
+                healthy:
+                  value:
+                    status: ok
+                    checks:
+                      database: ok
+                      provider:
+                        status: ok
+                degraded:
+                  value:
+                    status: degraded
+                    checks:
+                      database: ok
+                      provider:
+                        status: unavailable
+                        reason: Faltan variables de configuración del proveedor.
         '503':
-          description: La API no pudo consultar MySQL
+          description: MySQL no está disponible, independientemente del estado del proveedor.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Health'
+                allOf:
+                  - $ref: '#/components/schemas/Health'
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - properties:
+                      status:
+                        const: unavailable
               example:
                 status: unavailable
                 checks:
                   database: unavailable
+                  provider:
+                    status: ok
+                error:
+                  code: DATABASE_UNAVAILABLE
+                  message: MySQL no está disponible.
+  /logs:
+    get:
+      operationId: listLogs
+      summary: Lista logs con filtros y paginación
+      description: >-
+        Ordena los resultados por fecha del evento descendente y, en caso de
+        empate, por ID descendente. Si se envían ambas fechas, `from` debe ser
+        anterior a `to`.
+      parameters:
+        - $ref: '#/components/parameters/LogService'
+        - $ref: '#/components/parameters/LogLevel'
+        - $ref: '#/components/parameters/EventFrom'
+        - $ref: '#/components/parameters/EventTo'
+        - $ref: '#/components/parameters/TraceId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Página de logs. Si no hay coincidencias, `items` está vacío.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogPage'
+              example:
+                items:
+                  - id: 23
+                    timestamp: '2026-11-12T14:06:19.096Z'
+                    service: checkout-api
+                    level: ERROR
+                    message: Checkout failed after payment timeout order_id=ord-7014 status=504 duration_ms=2094
+                    traceId: 1d42b7d538724fae95c962e3d06cc5db
+                limit: 50
+                offset: 0
+                hasMore: false
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+    post:
+      operationId: createLog
+      summary: Valida y guarda un log
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogInput'
+            example:
+              timestamp: '2026-11-12T14:06:19.100Z'
+              service: checkout-api
+              level: ERROR
+              message: El proveedor de pagos no respondió a tiempo.
+              traceId: 1d42b7d538724fae95c962e3d06cc5db
+      responses:
+        '201':
+          description: Log guardado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: integer
+                    minimum: 1
+              example:
+                id: 32
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  /logs/summary:
+    get:
+      operationId: getLogSummary
+      summary: Cuenta los logs por servicio y nivel
+      description: >-
+        Aplica los filtros del listado antes de agrupar los logs. Si se envían
+        ambas fechas, `from` debe ser anterior a `to`. Devuelve todos los grupos
+        sin paginación, ordenados por servicio y nivel ascendentes.
+      parameters:
+        - $ref: '#/components/parameters/LogService'
+        - $ref: '#/components/parameters/LogLevel'
+        - $ref: '#/components/parameters/EventFrom'
+        - $ref: '#/components/parameters/EventTo'
+        - $ref: '#/components/parameters/TraceId'
+      responses:
+        '200':
+          description: Un conteo por cada combinación de servicio y nivel. Si no hay coincidencias, `items` está vacío.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogSummary'
+              example:
+                items:
+                  - service: checkout-api
+                    level: ERROR
+                    count: 1
+                  - service: checkout-api
+                    level: INFO
+                    count: 1
+                  - service: inventory-service
+                    level: INFO
+                    count: 2
+                  - service: payment-service
+                    level: DEBUG
+                    count: 1
+                  - service: payment-service
+                    level: ERROR
+                    count: 1
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  /logs/analyze:
+    post:
+      operationId: analyzeLogs
+      summary: Solicita un análisis asíncrono de logs
+      description: >-
+        Selecciona los logs por filtros o por IDs y guarda la selección completa
+        junto con el análisis antes de responder. Los límites predeterminados
+        son 100 logs y 32 KiB de logs serializados. Se pueden ajustar con
+        `ANALYSIS_MAX_LOGS` y `ANALYSIS_MAX_KIB`. El estado se consulta en
+        `GET /api/analysis/{id}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogAnalysisRequest'
+            examples:
+              byFilters:
+                summary: Selección de la traza con timeout en los datos de ejemplo
+                value:
+                  filters:
+                    traceId: 1d42b7d538724fae95c962e3d06cc5db
+                    from: '2026-11-12T14:02:00Z'
+                    to: '2026-11-12T14:11:00Z'
+              byIds:
+                summary: Selección por IDs en un volumen nuevo
+                description: Si ya hay datos, consulta GET /logs para obtener los IDs de la traza.
+                value:
+                  logIds: [21, 23]
+      responses:
+        '202':
+          description: Análisis aceptado y guardado en estado pendiente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id:
+                    type: integer
+                    minimum: 1
+                  status:
+                    type: string
+                    enum: [PENDING]
+              example:
+                id: 1
+                status: PENDING
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          description: La selección está vacía, supera un límite configurado o contiene IDs inexistentes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                emptySelection:
+                  value:
+                    error:
+                      code: EMPTY_SELECTION
+                      message: La selección está vacía. Ajusta los filtros o indica IDs de logs.
+                selectionTooLarge:
+                  value:
+                    error:
+                      code: SELECTION_TOO_LARGE
+                      message: La selección supera el límite de 100 logs. Acota el rango de fechas o selecciona menos IDs.
+                logIdsNotFound:
+                  value:
+                    error:
+                      code: LOG_IDS_NOT_FOUND
+                      message: Uno o más IDs de la selección no existen.
+        '503':
+          description: MySQL no está disponible o falta la configuración local requerida del proveedor de análisis.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analysis/findings:
+    get:
+      operationId: listFindings
+      summary: Lista hallazgos con sus logs de evidencia
+      description: >-
+        Aplica `category` al hallazgo. Si se combinan servicio y fechas, un mismo
+        log de evidencia debe satisfacer esos filtros. Si se envían ambas
+        fechas, `from` debe ser anterior a `to`. Cada hallazgo aparece una sola
+        vez y conserva su evidencia completa. Ordena por fecha de creación
+        descendente y usa el ID descendente como desempate.
+      parameters:
+        - name: category
+          in: query
+          description: Código de la categoría en el catálogo.
+          schema:
+            type: string
+            minLength: 1
+        - $ref: '#/components/parameters/LogService'
+        - $ref: '#/components/parameters/EventFrom'
+        - $ref: '#/components/parameters/EventTo'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Página de hallazgos. Si no hay coincidencias, `items` está vacío.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FindingPage'
+              example:
+                items:
+                  - id: 1
+                    analysisId: 1
+                    category: timeout
+                    createdAt: '2026-11-12T15:01:10Z'
+                    description: Hay evidencia de operaciones que excedieron el tiempo de espera.
+                    suggestion: Revisar la latencia y los límites de tiempo de los servicios afectados.
+                    evidence:
+                      - id: 21
+                        timestamp: '2026-11-12T14:06:19.048Z'
+                        service: payment-service
+                        level: ERROR
+                        message: Payment provider connection timeout order_id=ord-7014 code=ETIMEDOUT timeout_ms=2000 duration_ms=2001
+                        traceId: 1d42b7d538724fae95c962e3d06cc5db
+                      - id: 23
+                        timestamp: '2026-11-12T14:06:19.096Z'
+                        service: checkout-api
+                        level: ERROR
+                        message: Checkout failed after payment timeout order_id=ord-7014 status=504 duration_ms=2094
+                        traceId: 1d42b7d538724fae95c962e3d06cc5db
+                limit: 50
+                offset: 0
+                hasMore: false
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  /analysis/{id}:
+    get:
+      operationId: getAnalysis
+      summary: Consulta el estado y el resultado de un análisis
+      description: >-
+        Devuelve los IDs de la selección guardada. `PENDING` abarca la espera
+        y la ejecución. `COMPLETED` incluye el informe y `FAILED` incluye el
+        código y el motivo del fallo.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador devuelto al aceptar el análisis.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Estado actual del análisis.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Analysis'
+              examples:
+                pending:
+                  value:
+                    id: 1
+                    status: PENDING
+                    createdAt: '2026-11-12T15:01:00Z'
+                    logIds: [15, 16, 17, 21, 22, 23]
+                completed:
+                  value:
+                    id: 1
+                    status: COMPLETED
+                    createdAt: '2026-11-12T15:01:00Z'
+                    finishedAt: '2026-11-12T15:01:10Z'
+                    logIds: [15, 16, 17, 21, 22, 23]
+                    report:
+                      summary: El análisis de 6 registros generó 1 hallazgo.
+                      findings:
+                        - id: 1
+                          analysisId: 1
+                          category: timeout
+                          createdAt: '2026-11-12T15:01:10Z'
+                          description: Hay evidencia de operaciones que excedieron el tiempo de espera.
+                          suggestion: Revisar la latencia y los límites de tiempo de los servicios afectados.
+                          evidence:
+                            - id: 21
+                              timestamp: '2026-11-12T14:06:19.048Z'
+                              service: payment-service
+                              level: ERROR
+                              message: Payment provider connection timeout order_id=ord-7014 code=ETIMEDOUT timeout_ms=2000 duration_ms=2001
+                              traceId: 1d42b7d538724fae95c962e3d06cc5db
+                            - id: 23
+                              timestamp: '2026-11-12T14:06:19.096Z'
+                              service: checkout-api
+                              level: ERROR
+                              message: Checkout failed after payment timeout order_id=ord-7014 status=504 duration_ms=2094
+                              traceId: 1d42b7d538724fae95c962e3d06cc5db
+                failed:
+                  value:
+                    id: 2
+                    status: FAILED
+                    createdAt: '2026-11-12T15:02:00Z'
+                    finishedAt: '2026-11-12T15:02:30Z'
+                    logIds: [21, 23]
+                    error:
+                      code: PROVIDER_TIMEOUT
+                      message: El proveedor de análisis no respondió a tiempo.
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          description: El análisis solicitado no existe.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: ANALYSIS_NOT_FOUND
+                  message: El análisis solicitado no existe.
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  /categories:
+    get:
+      operationId: listCategories
+      summary: Lista el catálogo completo de categorías
+      description: Devuelve todas las categorías ordenadas por código ascendente, sin paginación.
+      responses:
+        '200':
+          description: Catálogo de categorías. Si el catálogo está vacío, `items` está vacío.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+              example:
+                items:
+                  - code: authentication_error
+                    description: Se rechazaron las credenciales o faltan permisos para la operación.
+                  - code: configuration_error
+                    description: Falta una configuración requerida o su valor es inválido.
+                  - code: connection_error
+                    description: No se pudo establecer o mantener una conexión de red.
+                  - code: dependency_failure
+                    description: Un servicio dependiente no estaba disponible o devolvió un error.
+                  - code: invalid_data
+                    description: Los datos tienen un formato inválido o incumplen una regla de validación.
+                  - code: resource_exhaustion
+                    description: Se agotó un recurso como memoria, espacio en disco o conexiones.
+                  - code: timeout
+                    description: Una operación superó el tiempo de espera configurado.
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
 components:
+  parameters:
+    LogService:
+      name: service
+      in: query
+      description: Servicio que generó el log.
+      schema:
+        type: string
+        minLength: 1
+    LogLevel:
+      name: level
+      in: query
+      description: Nivel del log.
+      schema:
+        type: string
+        minLength: 1
+    EventFrom:
+      name: from
+      in: query
+      description: Inicio inclusivo del rango de fechas del evento, con zona horaria.
+      schema:
+        type: string
+        format: date-time
+    EventTo:
+      name: to
+      in: query
+      description: Fin exclusivo del rango de fechas del evento, con zona horaria.
+      schema:
+        type: string
+        format: date-time
+    TraceId:
+      name: traceId
+      in: query
+      description: Identificador de la traza.
+      schema:
+        type: string
+        minLength: 1
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    Offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+  responses:
+    InvalidRequest:
+      description: El cuerpo o los parámetros de la solicitud no son válidos.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Ocurrió un error interno al procesar la solicitud.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: El cuerpo de la solicitud supera el límite permitido.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: PAYLOAD_TOO_LARGE
+              message: El cuerpo de la solicitud supera el límite permitido.
+    DatabaseUnavailable:
+      description: MySQL no está disponible.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
   schemas:
     Health:
       type: object
@@ -38,11 +520,247 @@ components:
       properties:
         status:
           type: string
-          enum: [ok, unavailable]
+          enum: [ok, degraded, unavailable]
         checks:
           type: object
-          required: [database]
+          required: [database, provider]
           properties:
             database:
               type: string
               enum: [ok, unavailable]
+            provider:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [ok, unavailable]
+                reason:
+                  type: string
+                  description: Motivo del fallo, si está disponible.
+    LogInput:
+      type: object
+      required: [timestamp, service, level, message]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Fecha y hora del evento con zona horaria.
+        service:
+          type: string
+          minLength: 1
+        level:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+        traceId:
+          type: string
+          minLength: 1
+    Log:
+      allOf:
+        - $ref: '#/components/schemas/LogInput'
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: integer
+              minimum: 1
+    LogPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMetadata'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Log'
+    PageMetadata:
+      type: object
+      required: [limit, offset, hasMore]
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        offset:
+          type: integer
+          minimum: 0
+        hasMore:
+          type: boolean
+          description: Indica si hay al menos un resultado que coincide con los filtros después de esta página.
+    LogSummary:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [service, level, count]
+            properties:
+              service:
+                type: string
+                minLength: 1
+              level:
+                type: string
+                minLength: 1
+              count:
+                type: integer
+                minimum: 1
+    LogFilters:
+      type: object
+      additionalProperties: false
+      description: >-
+        Aplica los mismos filtros que el listado. Un objeto vacío selecciona
+        todos los logs, sujeto a los límites del análisis. Si se envían ambas
+        fechas, `from` debe ser anterior a `to`.
+      properties:
+        service:
+          type: string
+          minLength: 1
+        level:
+          type: string
+          minLength: 1
+        from:
+          type: string
+          format: date-time
+          description: Inicio inclusivo del rango de fechas del evento, con zona horaria.
+        to:
+          type: string
+          format: date-time
+          description: Fin exclusivo del rango de fechas del evento, con zona horaria.
+        traceId:
+          type: string
+          minLength: 1
+    LogAnalysisRequest:
+      type: object
+      additionalProperties: false
+      description: Envía exactamente uno de los campos `filters` o `logIds`.
+      properties:
+        filters:
+          $ref: '#/components/schemas/LogFilters'
+        logIds:
+          type: array
+          description: IDs de los logs que se deben analizar. Una lista vacía devuelve `422`.
+          items:
+            type: integer
+            minimum: 1
+      oneOf:
+        - required: [filters]
+        - required: [logIds]
+    Analysis:
+      type: object
+      required: [id, status, createdAt, logIds]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        createdAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        logIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: integer
+            minimum: 1
+        report:
+          type: object
+          required: [summary, findings]
+          properties:
+            summary:
+              type: string
+            findings:
+              type: array
+              items:
+                $ref: '#/components/schemas/Finding'
+        error:
+          $ref: '#/components/schemas/ErrorDetails'
+      oneOf:
+        - properties:
+            status:
+              const: PENDING
+            finishedAt: false
+            report: false
+            error: false
+        - required: [finishedAt, report]
+          properties:
+            status:
+              const: COMPLETED
+            error: false
+        - required: [finishedAt, error]
+          properties:
+            status:
+              const: FAILED
+            report: false
+    Finding:
+      type: object
+      required: [id, analysisId, category, createdAt, description, suggestion, evidence]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        analysisId:
+          type: integer
+          minimum: 1
+        category:
+          type: string
+          minLength: 1
+          description: Código de la categoría en el catálogo.
+        createdAt:
+          type: string
+          format: date-time
+        description:
+          type: string
+        suggestion:
+          type: string
+        evidence:
+          type: array
+          description: Logs de la selección del análisis que respaldan el hallazgo.
+          items:
+            $ref: '#/components/schemas/Log'
+    FindingPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMetadata'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Finding'
+    Category:
+      type: object
+      required: [code, description]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Código estable que se usa en el filtro `category` de hallazgos.
+        description:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetails'
+    ErrorDetails:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string

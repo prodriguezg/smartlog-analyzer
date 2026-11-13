@@ -45,17 +45,17 @@ flowchart LR
 El monorepo organiza la interfaz en `frontend/` y la API y el worker en `backend/`. Un `docker-compose.yml` en la raíz levanta cuatro servicios con `docker compose up`.
 
 - `frontend` compila React con Vite y sirve los archivos con Nginx. Publica el puerto de la demo, por ejemplo `localhost:8080`, y reenvía `/api/*` al servicio `backend` conservando el prefijo. La interfaz y la API están disponibles desde el mismo origen.
-- `backend` ejecuta Express, Sequelize y el worker. Compose espera a que pase el healthcheck de MySQL antes de iniciarlo. El backend aplica las migraciones y los seeds pendientes y marca los análisis interrumpidos antes de aceptar solicitudes.
+- `backend` ejecuta Express, Sequelize y el worker. Compose espera a que pase el healthcheck de MySQL en el arranque inicial. El backend reintenta la conexión durante el arranque si MySQL aún no está listo, como puede suceder al reiniciar ambos servicios. Luego aplica las migraciones y los seeds pendientes y marca los análisis interrumpidos antes de aceptar solicitudes.
 - `db` ejecuta MySQL con InnoDB. Express y phpMyAdmin se conectan a MySQL por la red interna de Compose.
 - `phpmyadmin` permite inspeccionar el esquema y los datos de MySQL desde un puerto local independiente, `127.0.0.1:8081` por defecto. Compose lo inicia cuando MySQL pasa el healthcheck.
 
-La interfaz usa la API para mostrar el resumen, filtrar y paginar logs, iniciar análisis por filtros o IDs y consultar hallazgos con su evidencia. Se propone TanStack Query para las consultas y el polling de cada análisis, que se detiene en `COMPLETED` o `FAILED`.
+La interfaz usa la API para mostrar el resumen, filtrar y paginar logs, iniciar análisis por filtros o IDs y consultar hallazgos con su evidencia. Obtiene el catálogo en `GET /api/categories` para mostrar las descripciones y usar los códigos en el filtro de hallazgos. Se propone TanStack Query para las consultas y el polling de cada análisis, que se detiene en `COMPLETED` o `FAILED`.
 
-MySQL conserva sus datos en un volumen. El catálogo y los logs de ejemplo se cargan automáticamente mediante seeds con historial persistido y claves estables que permiten repetir una carga interrumpida. El README documentará puertos, red, variables de entorno y los pasos de la demo, incluido el intervalo fijo de los logs de ejemplo.
+MySQL conserva sus datos en un volumen. El catálogo y los logs de ejemplo se cargan automáticamente mediante seeds con historial persistido. El catálogo usa códigos estables y la carga de logs se confirma en la misma transacción que su registro en el historial. El README documenta puertos, red, variables de entorno y los pasos de la demo, incluido el intervalo fijo de los logs de ejemplo.
 
 ### Ciclo del análisis
 
-1. `POST /api/logs/analyze` acepta filtros o una lista explícita de IDs. Resuelve la selección en ese momento y valida que tenga entradas, que los IDs solicitados existan y que el conjunto completo esté dentro de los límites. Como punto de partida se proponen **100 logs y 32 KiB de logs serializados**, configurables y sujetos a verificación con el modelo elegido. Si la selección supera un tope, la respuesta indica cómo acotarla.
+1. `POST /api/logs/analyze` acepta filtros o una lista explícita de IDs. Resuelve la selección en ese momento y valida que tenga entradas, que los IDs solicitados existan y que el conjunto completo esté dentro de los límites. Los topes predeterminados son **100 logs y 32 KiB de logs serializados** y se ajustan con `ANALYSIS_MAX_LOGS` y `ANALYSIS_MAX_KIB`. Si la selección supera un tope, la respuesta indica cómo acotarla.
 2. La API guarda el análisis en `PENDING` y su selección exacta en `analysis_logs`, en una sola transacción. Devuelve `202 Accepted` con el ID después del commit. Si falta la configuración local requerida de OpenAI, devuelve `503` antes de crear el registro.
 3. Un worker dentro de la aplicación consulta los pendientes de MySQL y procesa uno a la vez. El prototipo se ejecuta como una sola instancia. El worker lee los logs de la selección guardada y el catálogo, y llama al proveedor con un tiempo límite. La llamada se realiza fuera de la transacción de base de datos.
 4. El servicio valida el resumen, los hallazgos y las referencias antes de guardar el resultado. Las categorías deben pertenecer al catálogo y cada log citado debe pertenecer a la selección de ese análisis. El informe, los hallazgos, sus vínculos y el cambio a `COMPLETED` se escriben en una sola transacción. Un timeout, una respuesta inválida o un error del proveedor dejan el análisis en `FAILED` con un motivo consultable.
@@ -90,7 +90,7 @@ Los filtros de fecha se aplican al instante del evento. Se propone aceptar fecha
 
 ## Contrato REST y OpenAPI
 
-El contrato se define desde el primer incremento en `backend/openapi.yaml`. Express publica el archivo en `GET /api/openapi.yaml` y sirve Swagger UI en `/api/docs`. El documento usa `/api` como base relativa y declara las rutas a partir de `/logs`, `/findings` y las demás operaciones. Así, **Try it out** usa el origen de la demo también cuando se accede por Nginx.
+El contrato se define desde el primer incremento en `backend/openapi.yaml`. Express publica el archivo en `GET /api/openapi.yaml` y sirve Swagger UI en `/api/docs`. El documento usa `/api` como base relativa y declara rutas como `/logs`, `/analysis/findings` y `/categories`. Así, **Try it out** usa el origen de la demo también cuando se accede por Nginx.
 
 Los ejemplos del contrato siguen el recorrido del seed e incluyen selección por filtros o IDs, aceptación en `PENDING`, selección fuera de límites y health degradado. Cada cambio de endpoint se acompaña de su actualización en OpenAPI y de la prueba de integración correspondiente.
 
@@ -101,12 +101,13 @@ Los ejemplos del contrato siguen el recorrido del seed e incluyen selección por
 | `GET /api/logs/summary` | Aplica los mismos filtros de logs y devuelve el conteo por servicio y nivel. Es el punto de entrada de la demo. |
 | `POST /api/logs/analyze` | Valida filtros o IDs y devuelve `202` con el ID del análisis aceptado. |
 | `GET /api/analysis/{id}` | Devuelve el estado, los IDs seleccionados y, cuando corresponde, el informe completo o el motivo del fallo. |
-| `GET /api/findings` | Lista hallazgos por categoría, servicio o fecha de los logs de evidencia, con paginación. |
+| `GET /api/analysis/findings` | Lista hallazgos por categoría, servicio o fecha de los logs de evidencia, con paginación. |
+| `GET /api/categories` | Devuelve el catálogo completo de categorías con sus códigos y descripciones, sin paginación. |
 | `GET /api/health` | Informa el estado de la base y del proveedor de análisis. |
 
-En `GET /api/findings`, si se combinan servicio y fechas, un mismo log de evidencia debe cumplir ambos filtros. Cada hallazgo aparece una sola vez aunque coincidan varios logs. Los listados usan `limit` de 1 a 100 (por defecto 50), `offset` entero desde 0 (por defecto 0) y `hasMore` calculado a partir de una fila adicional. El orden propuesto es descendente por fecha del evento para logs y por fecha de creación para hallazgos, con ID descendente como desempate. El tamaño de la página es independiente del límite de un análisis.
+En `GET /api/analysis/findings`, si se combinan servicio y fechas, un mismo log de evidencia debe cumplir ambos filtros. Cada hallazgo aparece una sola vez aunque coincidan varios logs. Los listados de logs y hallazgos usan `limit` de 1 a 100 (por defecto 50), `offset` entero desde 0 (por defecto 0) y `hasMore` calculado a partir de una fila adicional. El orden propuesto es descendente por fecha del evento para logs y por fecha de creación para hallazgos, con ID descendente como desempate. El tamaño de la página es independiente del límite de un análisis.
 
-Las respuestas de error usan `error.code` y `error.message`. Se propone `400` para parámetros inválidos o modos de selección combinados, `422` para una selección vacía, demasiado grande o con IDs inexistentes, `404` para un análisis inexistente y `503` para dependencias indispensables para la operación que estén indisponibles.
+Las respuestas de error de la API usan `error.code` y `error.message`. Devuelven `400` para parámetros inválidos o modos de selección combinados, `404` para un análisis o una ruta inexistentes, `413` para un cuerpo HTTP que supera el límite de tamaño, `422` para una selección vacía, demasiado grande o con IDs inexistentes y `503` para dependencias indispensables que estén indisponibles. La respuesta `503` de health incluye también el estado y el resultado de cada comprobación.
 
 ## Decisiones y alternativas
 
@@ -121,7 +122,7 @@ Las respuestas de error usan `error.code` y `error.message`. Se propone `400` pa
 | Interrupción visible y reintento manual | Retomar automáticamente exigiría definir cuándo repetir una llamada que pudo haberse ejecutado antes del reinicio. El estado `FAILED` conserva el intento original y permite iniciar uno nuevo de forma explícita. |
 | Mock y OpenAI configurables | Usar solo OpenAI requeriría credenciales para la demo. Usar solo el mock limitaría la demostración de la integración real. La Factory permite probar ambos modos con el mismo contrato. |
 | Referencias a logs originales | Copiar los logs duplicaría los datos del prototipo. Si se incorpora una política de limpieza, guardar una copia de los campos enviados al proveedor preservaría la evidencia después de eliminar los originales. |
-| Catálogo y hallazgos en tablas | Las categorías libres dificultan comparar informes. Guardar todos los hallazgos en un JSON facilita recuperar un informe completo. Las tablas permiten consultar hallazgos entre análisis y vincular cada sugerencia con su categoría y evidencia. El CRUD del catálogo queda fuera del prototipo. |
+| Catálogo y hallazgos en tablas | Las categorías libres dificultan comparar informes. Guardar todos los hallazgos en un JSON facilita recuperar un informe completo. Las tablas permiten consultar hallazgos entre análisis y vincular cada sugerencia con su categoría y evidencia. La API expone el catálogo en modo de solo lectura. |
 | Selección completa y acotada | Analizar una muestra o los logs más recientes podría omitir el evento que inició un incidente. La API rechaza el conjunto completo si supera el tope de cantidad o de tamaño. |
 | Agregación por API y seed automático | Un script SQL aislado demostraría la agregación. El endpoint y la carga automática permiten usarla para elegir qué investigar desde el primer arranque. |
 | Paginación con `limit` y `offset` | Un cursor sería útil para listados profundos o con muchas inserciones. La paginación por desplazamiento cubre la demo y acota la respuesta. Se revisarán los filtros principales con `EXPLAIN`, ya que un `offset` alto sigue teniendo costo. |

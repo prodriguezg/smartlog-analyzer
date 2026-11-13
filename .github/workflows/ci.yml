@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: CI checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint JavaScript
+        run: npm run lint
+
+      - name: Validate OpenAPI
+        run: npm run lint:openapi
+
+      - name: Set up Docker Compose
+        uses: docker/setup-compose-action@v2
+        with:
+          version: v5.7.0
+
+      - name: Validate Docker Compose
+        run: |
+          docker compose version
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f compose.dev.yml config -q
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Report potentially breaking OpenAPI changes
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        run: |
+          specs_dir=$(mktemp -d)
+          # The first parent of GitHub's PR merge commit is the base being tested.
+          git show HEAD^1:backend/openapi.yaml > "$specs_dir/base.yaml"
+          cp backend/openapi.yaml "$specs_dir/revision.yaml"
+          printf '## OpenAPI compatibility\n\n' >> "$GITHUB_STEP_SUMMARY"
+          docker run --rm --network none --volume "$specs_dir:/specs:ro" tufin/oasdiff:v1.37.0 \
+            breaking --flatten-allof --format markdown /specs/base.yaml /specs/revision.yaml | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Run backend tests with coverage
+        id: backend-tests
+        run: npm run test:coverage --workspace backend
+
+      - name: Upload backend coverage
+        if: ${{ !cancelled() && (steps.backend-tests.outcome == 'success' || steps.backend-tests.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          if-no-files-found: warn

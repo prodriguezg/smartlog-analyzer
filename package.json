@@ -9,10 +9,12 @@
   "scripts": {
     "build": "npm run build --workspace frontend",
     "lint": "eslint . --max-warnings 0",
+    "lint:openapi": "redocly lint --extends spec backend/openapi.yaml",
     "test": "npm test --workspace backend"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@redocly/cli": "2.78.0",
     "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
