@@ -358,6 +358,44 @@ paths:
                   message: El análisis solicitado no existe.
         '503':
           $ref: '#/components/responses/DatabaseUnavailable'
+  /categories:
+    get:
+      operationId: listCategories
+      summary: Lista el catálogo completo de categorías
+      description: Devuelve todas las categorías sin paginación para el filtro de hallazgos.
+      responses:
+        '200':
+          description: Catálogo de categorías. Si el catálogo está vacío, `items` está vacío.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+              example:
+                items:
+                  - code: timeout
+                    description: Una operación superó el tiempo de espera configurado.
+                  - code: connection_error
+                    description: No se pudo establecer o mantener una conexión de red.
+                  - code: dependency_failure
+                    description: Un servicio dependiente no estaba disponible o devolvió un error.
+                  - code: resource_exhaustion
+                    description: Se agotó un recurso como memoria, espacio en disco o conexiones.
+                  - code: configuration_error
+                    description: Falta una configuración requerida o su valor es inválido.
+                  - code: authentication_error
+                    description: Se rechazaron las credenciales o faltan permisos para la operación.
+                  - code: invalid_data
+                    description: Los datos tienen un formato inválido o incumplen una regla de validación.
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
 components:
   parameters:
     LogService:
@@ -649,6 +687,17 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Finding'
+    Category:
+      type: object
+      required: [code, description]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Código estable que se usa en el filtro `category` de hallazgos.
+        description:
+          type: string
     ErrorResponse:
       type: object
       required: [error]

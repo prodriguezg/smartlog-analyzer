@@ -4,7 +4,7 @@ import { after, before, describe, it } from "mocha";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { createProvider } from "../src/providers/provider-factory.js";
-import { createSequelize } from "../src/repositories/sequelize.js";
+import { createSequelize } from "../src/repositories/sequelize/index.js";
 
 describe("GET /api/health with MySQL", function () {
   this.timeout(120_000);

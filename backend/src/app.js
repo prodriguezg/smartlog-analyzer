@@ -5,11 +5,13 @@ import { createOpenApiValidationMiddleware } from "./middleware/openapi-validati
 import { createHealthRouter } from "./router/health-router.js";
 import { createLogsRouter } from "./router/logs-router.js";
 import { createAnalysisRouter } from "./router/analysis-router.js";
+import { createCategoriesRouter } from "./router/categories-router.js";
 
 const specPath = fileURLToPath(new URL("../openapi.yaml", import.meta.url));
 
 const paths = {
   analysis: "/api/analysis",
+  categories: "/api/categories",
   docs: "/api/docs",
   health: "/api/health",
   logs: "/api/logs",
@@ -38,6 +40,7 @@ export function createApp({ database, llmProvider }) {
   app.use(paths.health, createHealthRouter({ database, llmProvider }));
   app.use(paths.logs, createLogsRouter({ database, path: paths.logs }));
   app.use(paths.analysis, createAnalysisRouter({ database, llmProvider }));
+  app.use(paths.categories, createCategoriesRouter({ database }));
 
   return app;
 }
