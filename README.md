@@ -64,7 +64,11 @@ Con `PORT=3000`, puedes consultar el backend en <http://127.0.0.1:3000/api/healt
 
 ## Demo con los logs de ejemplo
 
-Al iniciar, el backend carga 31 logs de ejemplo del 12 de noviembre de 2026 entre las 14:02 y las 14:11 UTC. Para investigar una compra que falló por un timeout, abre el [explorador](http://127.0.0.1:8080) y revisa el resumen por servicio y nivel. Abre el registro `Checkout failed after payment timeout` y usa **Ver traza** para consultar sus seis eventos. Elige **Analizar filtros** y abre **Ver evidencia (2)** en el informe. En **Hallazgos**, aplica la categoría `timeout` para volver a consultar el resultado.
+Al iniciar, el backend carga 31 logs de ejemplo del 12 de noviembre de 2026 entre las 14:02 y las 14:11 UTC. Con el proveedor mock predeterminado, puedes reproducir el timeout de una compra desde el [explorador](http://127.0.0.1:8080).
+
+1. En **ID de traza**, ingresa `1d42b7d538724fae95c962e3d06cc5db` y pulsa **Aplicar filtros**. El listado muestra seis eventos de tres servicios.
+2. Pulsa **Analizar filtros**. Cuando termine el análisis, abre **Ver evidencia (2)** para revisar los logs que respaldan el hallazgo `timeout`.
+3. En **Hallazgos**, aplica la categoría `timeout` para consultar el hallazgo guardado.
 
 En **Análisis** puedes abrir dos informes guardados del proveedor mock y consultar la evidencia de sus tres hallazgos. Para explorar los 36 logs adicionales, filtra el 13 de noviembre de 2026 entre las 13:41 y las 13:57 UTC. La traza `ba8b9b4992b54c8ba0d4346d24e1d7db` sigue una compra exitosa cuyo correo de confirmación se envió tras un reintento.
 
@@ -96,19 +100,40 @@ En este modo, Vite sirve React en el puerto publicado y reenvía `/api/` a Expre
 
 El inspector se publica en `127.0.0.1:9229` con `compose.dev.yml`. VS Code vuelve a conectarse cuando Compose Watch reinicia el backend.
 
-## Comprobaciones
+## Pruebas
 
-Usa Node.js 24 y npm desde la raíz del monorepo. Las pruebas de integración requieren Docker activo. Testcontainers levanta instancias temporales de MySQL 8.4 para comprobar las migraciones y la API.
+Usa Node.js 24 y ejecuta `npm ci` desde la raíz del monorepo. La suite del backend requiere Docker activo para que Testcontainers levante instancias temporales de MySQL 8.4.
 
 ```bash
-npm ci
+npm test                       # Backend
+npm test --workspace frontend  # Frontend
+```
+
+## Comprobaciones de CI
+
+```bash
 npm run lint
 npm run lint:openapi
 docker compose -f docker-compose.yml config -q
 docker compose -f docker-compose.yml -f compose.dev.yml config -q
 npm run build
-npm test --workspace frontend
-npm test
 ```
 
-[CI](.github/workflows/ci.yml) ejecuta estos controles en los PR a `master` y en los pushes a esa rama. La suite comprueba respuestas representativas de éxito y error contra sus esquemas OpenAPI. CI ejecuta la suite con `npm run test:coverage --workspace backend` y publica el informe HTML como artefacto `backend-coverage`, sin umbral mínimo. En los PR, el resumen de la ejecución incluye la comparación OpenAPI con la rama base como control informativo.
+[CI](.github/workflows/ci.yml) ejecuta estos controles y las suites de pruebas en los PR a `master` y en los pushes a esa rama. La suite del backend comprueba respuestas representativas de éxito y error contra sus esquemas OpenAPI. CI la ejecuta con `npm run test:coverage --workspace backend` y publica el informe HTML como artefacto `backend-coverage`, sin umbral mínimo. En los PR, el resumen de la ejecución incluye la comparación OpenAPI con la rama base como control informativo.
+
+## Uso de IA durante el desarrollo
+
+Se usó **OpenAI Codex** con el modelo **6.1 Sol**.
+
+- **Evaluación del stack.** La IA ayudó a comparar alternativas. El autor eligió JavaScript tras evaluar TypeScript, por su mayor experiencia con JavaScript. También eligió MySQL tras evaluar PostgreSQL, Sequelize como ORM y Mocha y Chai para las pruebas del backend.
+- **Documentación.** La IA ayudó a mejorar la redacción de la documentación y a generar el diagrama Mermaid de [arquitectura](ARCHITECTURE.md).
+- **Pruebas y migraciones.** La IA ayudó a generar pruebas automatizadas y migraciones con datos sintéticos que representan situaciones realistas, como trazas de compra entre servicios y fallos de pago.
+- **Integración continua.** La IA ayudó a armar el pipeline de CI en GitHub Actions a partir de las pautas definidas por el autor. [Flujo de CI](.github/workflows/ci.yml)
+- **Implementación del frontend.** Se usó IA para acelerar el desarrollo guiado por especificaciones (*Specification-Driven Development*, SDD). La implementación siguió los criterios de aceptación del [issue #3](https://github.com/prodriguezg/smartlog-analyzer/issues/3) para el explorador de logs, el seguimiento de análisis y la consulta de hallazgos con su evidencia.
+
+**Una sugerencia descartada.** Codex propuso esperar el resultado del LLM dentro de la solicitud HTTP. El autor eligió un flujo asíncrono para que la persona pueda seguir explorando los logs mientras corre el análisis. La API devuelve `202 Accepted` con el ID del análisis y el cliente consulta su estado con `GET /api/analysis/{id}`.
+
+## Fuera de alcance y próximos pasos
+
+- **Retención de logs.** El prototipo mantiene referencias a los logs originales. Para aplicar una política de retención, guardaría una copia de los campos de evidencia en cada análisis antes de eliminar los logs vencidos.
+- **Procesamiento con varias instancias.** El prototipo usa un solo worker. Para escalarlo, cada worker tomaría un trabajo reservándolo en MySQL con una actualización atómica y un vencimiento. Si el worker se cae, otro podría tomar el trabajo al vencer la reserva.
