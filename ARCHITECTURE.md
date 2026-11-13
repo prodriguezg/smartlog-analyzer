@@ -49,7 +49,7 @@ El monorepo organiza la interfaz en `frontend/` y la API y el worker en `backend
 - `db` ejecuta MySQL con InnoDB. Express y phpMyAdmin se conectan a MySQL por la red interna de Compose.
 - `phpmyadmin` permite inspeccionar el esquema y los datos de MySQL desde un puerto local independiente, `127.0.0.1:8081` por defecto. Compose lo inicia cuando MySQL pasa el healthcheck.
 
-La interfaz usa la API para mostrar el resumen, filtrar y paginar logs, iniciar análisis por filtros o IDs y consultar hallazgos con su evidencia. Obtiene el catálogo en `GET /api/categories` para mostrar las descripciones y usar los códigos en el filtro de hallazgos. Se propone TanStack Query para las consultas y el polling de cada análisis, que se detiene en `COMPLETED` o `FAILED`.
+La interfaz usa la API para mostrar el resumen, filtrar y paginar logs, iniciar análisis por filtros o IDs y consultar hallazgos con su evidencia. Obtiene el catálogo en `GET /api/categories` para mostrar las descripciones y usar los códigos en el filtro de hallazgos. La vista **Análisis** muestra el historial paginado y el proveedor de cada resultado cuando está disponible. La interfaz usa TanStack Query para obtener los datos y consultar periódicamente el estado de un análisis nuevo mientras sigue en `PENDING`.
 
 MySQL conserva sus datos en un volumen. El catálogo y los logs de ejemplo se cargan automáticamente mediante seeds con historial persistido. El catálogo usa códigos estables y la carga de logs se confirma en la misma transacción que su registro en el historial. El README documenta puertos, red, variables de entorno y los pasos de la demo, incluido el intervalo fijo de los logs de ejemplo.
 
@@ -80,7 +80,7 @@ La API acepta selecciones válidas durante un fallo transitorio reportado por he
 | Tabla | Contenido y relaciones |
 | --- | --- |
 | `logs` | ID, fecha del evento, servicio, nivel, mensaje y `trace_id` opcional. |
-| `analyses` | ID, estado, fechas de creación y finalización, resumen o código y motivo de fallo. |
+| `analyses` | ID, estado, proveedor cuando se conoce, fechas de creación y finalización, resumen o código y motivo de fallo. |
 | `analysis_logs` | Relación entre análisis y logs con clave compuesta `(analysis_id, log_id)`. La clave foránea impide borrar un log mientras esté referenciado. |
 | `categories` | Código estable y descripción. El seed carga el catálogo inicial. Agregar registros permite ampliarlo. |
 | `findings` | ID, análisis, categoría, fecha de creación, descripción del problema y sugerencia de acción. Un análisis puede tener cero o más hallazgos. |
@@ -100,12 +100,13 @@ Los ejemplos del contrato siguen el recorrido del seed e incluyen selección por
 | `GET /api/logs` | Lista logs por servicio, nivel, rango de fechas o `traceId`, con paginación. |
 | `GET /api/logs/summary` | Aplica los mismos filtros de logs y devuelve el conteo por servicio y nivel. Es el punto de entrada de la demo. |
 | `POST /api/logs/analyze` | Valida filtros o IDs y devuelve `202` con el ID del análisis aceptado. |
-| `GET /api/analysis/{id}` | Devuelve el estado, los IDs seleccionados y, cuando corresponde, el informe completo o el motivo del fallo. |
+| `GET /api/analysis` | Lista los análisis `COMPLETED` y `FAILED` con su ID, estado, fecha de creación y proveedor. |
+| `GET /api/analysis/{id}` | Devuelve el estado y los IDs seleccionados. Para un análisis finalizado, incluye el informe o el motivo del fallo y el proveedor, que puede ser `null` si no se pudo determinar. |
 | `GET /api/analysis/findings` | Lista hallazgos por categoría, servicio o fecha de los logs de evidencia, con paginación. |
 | `GET /api/categories` | Devuelve el catálogo completo de categorías con sus códigos y descripciones, sin paginación. |
 | `GET /api/health` | Informa el estado de la base y del proveedor de análisis. |
 
-En `GET /api/analysis/findings`, si se combinan servicio y fechas, un mismo log de evidencia debe cumplir ambos filtros. Cada hallazgo aparece una sola vez aunque coincidan varios logs. Los listados de logs y hallazgos usan `limit` de 1 a 100 (por defecto 50), `offset` entero desde 0 (por defecto 0) y `hasMore` calculado a partir de una fila adicional. El orden propuesto es descendente por fecha del evento para logs y por fecha de creación para hallazgos, con ID descendente como desempate. El tamaño de la página es independiente del límite de un análisis.
+En `GET /api/analysis/findings`, si se combinan servicio y fechas, un mismo log de evidencia debe cumplir ambos filtros. Cada hallazgo aparece una sola vez aunque coincidan varios logs. Los listados de logs, hallazgos y análisis finalizados usan `limit` de 1 a 100 (por defecto 50), `offset` entero desde 0 (por defecto 0) y `hasMore` calculado a partir de una fila adicional. Los logs se ordenan por fecha del evento descendente y los hallazgos y análisis por fecha de creación descendente. En los tres listados, el ID descendente desempata. El tamaño de la página es independiente del límite de un análisis.
 
 Las respuestas de error de la API usan `error.code` y `error.message`. Devuelven `400` para parámetros inválidos o modos de selección combinados, `404` para un análisis o una ruta inexistentes, `413` para un cuerpo HTTP que supera el límite de tamaño, `422` para una selección vacía, demasiado grande o con IDs inexistentes y `503` para dependencias indispensables que estén indisponibles. La respuesta `503` de health incluye también el estado y el resultado de cada comprobación.
 
